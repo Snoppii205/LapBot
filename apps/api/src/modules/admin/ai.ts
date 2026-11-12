@@ -228,8 +228,8 @@ export async function getAiRuntimeSettings(): Promise<AiRuntimeSettings> {
     custom_system_instructions: (row.custom_system_instructions as string) || '',
     welcome_message: (row.welcome_message as string) || DEFAULT_WELCOME_MESSAGE,
     suggested_prompts,
-    max_tokens_per_call: Number(row.max_tokens_per_call) || 1200,
-    turn_timeout_ms: Number(row.turn_timeout_ms) || 30000,
+    max_tokens_per_call: Number(row.max_tokens_per_call) || 3600,
+    turn_timeout_ms: Number(row.turn_timeout_ms) || 45000,
     human_wait_timeout_sec: Number(row.human_wait_timeout_sec) || 120
   };
   cachedRuntimeAt = now;
@@ -449,7 +449,7 @@ export async function testAiModel(
   const testModel = input.model?.trim() || configState.active_model;
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 25000);
+  const timer = setTimeout(() => controller.abort(), configState.turn_timeout_ms || 45000);
   const startTime = Date.now();
 
   try {
@@ -492,11 +492,13 @@ export async function testAiModel(
       readOnlyTools,
       controller.signal,
       () => {},
-      testModel
+      testModel,
+      configState.max_tokens_per_call
     );
 
     let finalText = completion1.text;
     let finalUsage = completion1.usage;
+    let finalTruncated = Boolean(completion1.truncatedByLength);
 
     if (completion1.toolCalls.length > 0) {
       messages.push({
@@ -536,9 +538,11 @@ export async function testAiModel(
         readOnlyTools,
         controller.signal,
         () => {},
-        testModel
+        testModel,
+        configState.max_tokens_per_call
       );
       finalText = completion2.text;
+      finalTruncated = Boolean(completion2.truncatedByLength);
       if (completion2.usage) finalUsage = completion2.usage;
     }
 
@@ -550,7 +554,7 @@ export async function testAiModel(
       [adminId, JSON.stringify({ settings_id: 1, model: testModel, prompt, latency_ms })]
     );
 
-    const cleanResponse = sanitizeAssistantText(finalText).trim();
+    const cleanResponse = sanitizeAssistantText(finalText, { truncated: finalTruncated }).trim();
     return {
       model: testModel,
       response_text: cleanResponse || '(Model không trả về nội dung văn bản)',

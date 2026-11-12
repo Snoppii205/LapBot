@@ -1131,7 +1131,7 @@ const ENDPOINT_METADATA: Record<string, EndpointMeta> = {
       ai_enabled_override: true,
       welcome_message:
         'Xin chào! Mình là LapBot — trợ lý chọn laptop theo đúng nhu cầu và ngân sách của bạn.',
-      max_tokens_per_call: 1024,
+      max_tokens_per_call: 3600,
       turn_timeout_ms: 45000
     },
     errorStatuses: [400, 401, 403]

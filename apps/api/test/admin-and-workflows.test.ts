@@ -190,18 +190,18 @@ test('admin AI config & variant patch routes enforce DB-aligned bounds and stric
     await app.ready();
 
     assert.equal(AI_MAX_TOKENS_MIN, 128);
-    assert.equal(AI_MAX_TOKENS_MAX, 1200);
+    assert.equal(AI_MAX_TOKENS_MAX, 4096);
     assert.equal(AI_TURN_TIMEOUT_MIN_MS, 10000);
     assert.equal(AI_TURN_TIMEOUT_MAX_MS, 60000);
     assert.equal(AI_HUMAN_WAIT_MIN_SEC, 30);
     assert.equal(AI_HUMAN_WAIT_MAX_SEC, 600);
 
-    // Out-of-bounds max_tokens_per_call (4096 > 1200) must be rejected with 400 before auth/DB
+    // Out-of-bounds max_tokens_per_call (8192 > 4096) must be rejected with 400 before auth/DB
     const outOfRangeTokens = await app.inject({
       method: 'PATCH',
       url: '/api/v1/admin/ai/config',
       headers: { origin: 'http://localhost:5173', 'content-type': 'application/json' },
-      payload: { max_tokens_per_call: 4096 }
+      payload: { max_tokens_per_call: 8192 }
     });
     assert.equal(outOfRangeTokens.statusCode, 400);
 

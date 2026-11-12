@@ -30,6 +30,7 @@ export type Completion = {
   text: string;
   toolCalls: ToolCall[];
   finishReason: string;
+  truncatedByLength?: boolean;
   usage: Record<string, unknown> | null;
 };
 export async function complete(
@@ -44,7 +45,7 @@ export async function complete(
     throw new AppError(503, 'LLM_UNAVAILABLE', 'Trợ lý AI chưa được cấu hình cổng kết nối.');
   }
   const model = modelOverride || config.llmModel || 'gemini-2.5-flash';
-  const max_tokens = maxTokensOverride || 1200;
+  const max_tokens = maxTokensOverride || 3600;
   const requestBody: Record<string, unknown> = {
     model,
     messages,
@@ -155,6 +156,7 @@ export async function complete(
         calls.set(fragment.index, current);
       }
   }
+  const truncatedByLength = finishReason === 'length';
   if (finishReason === 'length' && calls.size === 0 && text.trim().length > 0) {
     finishReason = 'stop';
   }
@@ -174,5 +176,5 @@ export async function complete(
     throw new AppError(503, 'LLM_INVALID_TOOL', 'Tool call không hợp lệ.');
   if (finishReason === 'tool_calls' && !toolCalls.length)
     throw new AppError(503, 'LLM_INVALID_TOOL', 'Tool call bị thiếu.');
-  return { text, toolCalls, finishReason, usage };
+  return { text, toolCalls, finishReason, truncatedByLength, usage };
 }

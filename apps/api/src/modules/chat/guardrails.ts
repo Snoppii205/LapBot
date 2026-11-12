@@ -285,11 +285,52 @@ export function sanitizeContextValue(raw: unknown, maxLen = 80): string {
     .slice(0, maxLen);
 }
 
+const SENTENCE_TERMINATOR_RE = /[.!?…](?=\s|$|["'”’*_)\]])/g;
+
+function lastRealSentenceEnd(segment: string): number {
+  let lastIdx = -1;
+  SENTENCE_TERMINATOR_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = SENTENCE_TERMINATOR_RE.exec(segment)) !== null) {
+    lastIdx = match.index;
+  }
+  return lastIdx;
+}
+
+export function trimDanglingIncompleteSentence(text: string): string {
+  const trimmed = text.trimEnd();
+  if (!trimmed) return trimmed;
+  // Keep text if it already ends with real terminal punctuation, table pipe, or closing delimiter
+  if (/(?:[.!?…:;]|[.!?…]["'”’*_)\]]|\|)$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  const lastNewline = trimmed.lastIndexOf('\n');
+  if (lastNewline > 0) {
+    const tailLine = trimmed.slice(lastNewline + 1);
+    const tailSentenceEnd = lastRealSentenceEnd(tailLine);
+    if (tailSentenceEnd >= 0) {
+      let cut = lastNewline + 1 + tailSentenceEnd + 1;
+      while (cut < trimmed.length && /["'”’*_)\]]/.test(trimmed[cut]!)) cut++;
+      return trimmed.slice(0, cut).trimEnd();
+    }
+    return trimmed.slice(0, lastNewline).trimEnd();
+  }
+
+  const boundary = lastRealSentenceEnd(trimmed);
+  if (boundary > 0 && boundary > trimmed.length * 0.3) {
+    let cut = boundary + 1;
+    while (cut < trimmed.length && /["'”’*_)\]]/.test(trimmed[cut]!)) cut++;
+    return trimmed.slice(0, cut).trimEnd();
+  }
+  return trimmed;
+}
+
 /**
  * Strips accidental raw UUIDs and internal XML guardrail tags from assistant prose
  * while preserving valid internal Markdown links like (/products/<uuid>).
  */
-export function sanitizeAssistantText(text: string): string {
+export function sanitizeAssistantText(text: string, options?: { truncated?: boolean }): string {
   if (!text) return '';
 
   const protectedLinks: string[] = [];
@@ -329,6 +370,10 @@ export function sanitizeAssistantText(text: string): string {
   cleaned = cleaned.replace(/__LAPBOT_SAFE_PRODUCT_LINK_(\d+)__/g, (_, rawIdx: string) => {
     return protectedLinks[Number(rawIdx)] ?? '';
   });
+
+  if (options?.truncated) {
+    cleaned = trimDanglingIncompleteSentence(cleaned);
+  }
 
   return cleaned;
 }

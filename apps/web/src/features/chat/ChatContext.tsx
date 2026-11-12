@@ -60,7 +60,7 @@ export type ChatState = {
 
 const Context = createContext<ChatState | null>(null);
 
-const TABLE_SEPARATOR_RE = /\|\s*:?-{3,}:?\s*\|/;
+const TABLE_SEPARATOR_RE = /\|\s*:?-{2,}:?\s*\|/;
 
 export function useChat() {
   const value = useContext(Context);
@@ -141,6 +141,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       try {
         const state = await apiJson<History>('/chat/messages');
         setMessages(state.items);
+        if (state.items.some(m => m.role === 'ASSISTANT' && TABLE_SEPARATOR_RE.test(m.content))) {
+          setDrawerExpanded(true);
+        }
         if (clearStreamOnSuccess) {
           if (rafIdRef.current !== null) {
             cancelAnimationFrame(rafIdRef.current);

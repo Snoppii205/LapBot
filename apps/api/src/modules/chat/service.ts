@@ -109,8 +109,11 @@ export function buildSystemPrompt(params: {
 3. TƯ VẤN TINH GỌN, CÓ CHIỀU SÂU (TRÁNH CHÉP LẠI THÔNG SỐ THÔ):
    - Giao diện đã tự động hiển thị thẻ sản phẩm trực quan ngay bên dưới lời tư vấn của bạn; đừng liệt kê lại dài dòng mọi thông số đã có trên thẻ.
    - Hãy tập trung nêu **Điểm sáng đáng tiền nhất** với nhu cầu của khách + **1 Điểm đánh đổi thực tế** (ví dụ: máy siêu nhẹ nhưng RAM hàn liền, hoặc máy gaming khỏe nhưng trọng lượng đầm hơn) kèm gợi ý chọn mẫu nào cho ưu tiên nào.
-4. SO SÁNH TRỰC QUAN:
-   - Khi khách nhờ so sánh các mẫu, hãy lập bảng Markdown ngắn gọn đối chiếu 4–5 tiêu chí then chốt (CPU/GPU, RAM/SSD, Màn hình & Độ cơ động, Giá bán) và kết lại bằng dòng nhận định bắt đầu bằng ký tự trích dẫn ">" đầu dòng (ví dụ: "> **Chốt nhanh:** Chọn **Mẫu A** nếu bạn ưu tiên..., chọn **Mẫu B** nếu cần...").
+4. SO SÁNH TRỰC QUAN & KẾT THÚC GỌN GÀNG:
+   - Khi khách nhờ so sánh các mẫu, hãy đi thẳng vào bảng Markdown ngắn gọn đối chiếu 4–5 tiêu chí then chốt (CPU/GPU, RAM/SSD, Màn hình & Độ cơ động, Giá bán). KHÔNG viết danh sách gạch đầu dòng liệt kê thông số thô lặp lại trước khi vẽ bảng.
+   - Phần phân tích ưu/nhược điểm từng mẫu: Mỗi mẫu viết cô đọng đúng 1 ý Ưu điểm chính và 1 ý Nhược điểm/Đánh đổi (mỗi ý 1–2 câu súc tích), không viết lan man dài dòng.
+   - Luôn kết lại bằng nhận định bắt đầu bằng ký tự trích dẫn ">" đầu dòng (ví dụ: "> **Chốt nhanh:** Chọn **Mẫu A** nếu bạn ưu tiên..., chọn **Mẫu B** nếu cần...").
+   - SAU CÂU KẾT LUẬN "> **Chốt nhanh:**...", hãy DỪNG LẠI NGAY LẬP TỨC (stop generation), TUYỆT ĐỐI KHÔNG viết thêm đoạn văn dẫn dắt phụ để câu trả lời luôn gãy gọn và kết thúc sạch sẽ.
    - Khi cần gọi công cụ tra cứu, hãy gọi công cụ ngay lập tức mà KHÔNG viết câu dẫn quy trình thừa (như "Để so sánh, mình cần lấy chi tiết từ kho...") trước khi gọi tool.
 5. LÀM RÕ NHU CẦU & MỞ PHIẾU ĐẶT HÀNG:
    - Nếu câu hỏi quá ngắn và chưa rõ cả mục đích lẫn ngân sách (ví dụ chỉ nhắn "tư vấn mua laptop"), hãy hỏi gọn tối đa 2 ý (Công việc chính + Tầm giá dự kiến) để lọc máy sát nhất.
@@ -133,9 +136,8 @@ export async function runAiTurn(
   const aiConfig = await getAiRuntimeSettings().catch(() => null);
   const configuredModel = aiConfig?.active_model || 'gemini-2.5-flash';
   let activeModel = configuredModel;
-  const timeoutMs = aiConfig?.turn_timeout_ms || 30000;
-  const configuredMax = aiConfig?.max_tokens_per_call || 1200;
-  const maxTokens = Math.max(configuredMax, 1100);
+  const timeoutMs = aiConfig?.turn_timeout_ms || 45000;
+  const maxTokens = aiConfig?.max_tokens_per_call || 3600;
 
   const controller = new AbortController();
   const deadline = Date.now() + timeoutMs;
@@ -291,7 +293,9 @@ export async function runAiTurn(
         }
         flushText(gate);
         flushWidgets(gate);
-        const sanitizedFinal = sanitizeAssistantText(gate.text);
+        const sanitizedFinal = sanitizeAssistantText(gate.text, {
+          truncated: Boolean(result.truncatedByLength)
+        });
         const telemetry: TurnTelemetry = {
           model_used: activeModel,
           provider_calls: calls,
