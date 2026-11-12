@@ -1,0 +1,23 @@
+services:
+  web:
+    image: ${WEB_IMAGE:-lapbot-web:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lapbot-web
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: '3000'
+      TRUST_PROXY: 'true'
+    ports:
+      - '127.0.0.1:3005:3000'
+    volumes:
+      - ./data/uploads:/app/data/uploads
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '20m'
+        max-file: '3'

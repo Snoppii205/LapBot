@@ -89,6 +89,8 @@ export const adminAuditActions = [
   'ORDER_STATUS_CHANGE',
   'CHAT_CLAIM',
   'CHAT_RELEASE',
+  'CHAT_SESSION_CLEAN',
+  'CHAT_SESSIONS_BULK_CLEAN',
   'STAFF_CREATE',
   'STAFF_PATCH',
   'STAFF_PASSWORD_CHANGE',
@@ -186,6 +188,7 @@ export type AdminChatSession = {
   customer_id?: string | null;
   customer_name?: string | null;
   customer_email?: string | null;
+  message_count?: number;
 };
 
 export const adminChatSessionSchema = {
@@ -214,7 +217,65 @@ export const adminChatSessionSchema = {
     updated_at: { type: 'string' },
     customer_id: { type: ['string', 'null'] },
     customer_name: { type: ['string', 'null'] },
-    customer_email: { type: ['string', 'null'] }
+    customer_email: { type: ['string', 'null'] },
+    message_count: { type: 'integer', minimum: 0 }
+  }
+} as const;
+
+export const adminChatCleanScopes = ['empty_or_expired', 'inactive_ai_24h', 'all_ai_idle'] as const;
+export type AdminChatCleanScope = (typeof adminChatCleanScopes)[number];
+
+export type AdminChatDeleteResult = {
+  session_id: string;
+  mode: 'deleted' | 'cleared';
+  deleted_messages_count: number;
+  cancelled_quotes_count: number;
+  message: string;
+};
+
+export const adminChatDeleteResultSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['session_id', 'mode', 'deleted_messages_count', 'cancelled_quotes_count', 'message'],
+  properties: {
+    session_id: { type: 'string', format: 'uuid' },
+    mode: { type: 'string', enum: ['deleted', 'cleared'] },
+    deleted_messages_count: { type: 'integer', minimum: 0 },
+    cancelled_quotes_count: { type: 'integer', minimum: 0 },
+    message: { type: 'string' }
+  }
+} as const;
+
+export type AdminChatBulkCleanResult = {
+  scope: AdminChatCleanScope;
+  deleted_sessions_count: number;
+  cleared_sessions_count: number;
+  deleted_messages_count: number;
+  cancelled_quotes_count: number;
+  purged_auth_sessions_count: number;
+  message: string;
+};
+
+export const adminChatBulkCleanResultSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'scope',
+    'deleted_sessions_count',
+    'cleared_sessions_count',
+    'deleted_messages_count',
+    'cancelled_quotes_count',
+    'purged_auth_sessions_count',
+    'message'
+  ],
+  properties: {
+    scope: { type: 'string', enum: [...adminChatCleanScopes] },
+    deleted_sessions_count: { type: 'integer', minimum: 0 },
+    cleared_sessions_count: { type: 'integer', minimum: 0 },
+    deleted_messages_count: { type: 'integer', minimum: 0 },
+    cancelled_quotes_count: { type: 'integer', minimum: 0 },
+    purged_auth_sessions_count: { type: 'integer', minimum: 0 },
+    message: { type: 'string' }
   }
 } as const;
 

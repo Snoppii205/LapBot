@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import type {
+  AdminChatBulkCleanResult,
+  AdminChatCleanScope,
+  AdminChatDeleteResult,
   AdminChatSession,
   AdminProfile,
   AdminVariant,
@@ -32,6 +35,7 @@ import {
   IconShoppingBag,
   IconSparkles,
   IconSpinner,
+  IconTrash,
   IconUsers
 } from '../../components/icons/RetroIcons.js';
 
@@ -194,10 +198,18 @@ export function AdminChatPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [draft, setDraft] = useState('');
   const [error, setError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
   const [busy, setBusy] = useState(false);
-  const [actionKind, setActionKind] = useState<'claim' | 'release' | 'send' | 'widget' | null>(
-    null
-  );
+  const [actionKind, setActionKind] = useState<
+    'claim' | 'release' | 'send' | 'widget' | 'clean_one' | null
+  >(null);
+
+  // Session Cleanup state
+  const [showBulkCleanModal, setShowBulkCleanModal] = useState(false);
+  const [cleanScope, setCleanScope] = useState<AdminChatCleanScope>('empty_or_expired');
+  const [bulkCleaning, setBulkCleaning] = useState(false);
+  const [confirmDeleteSessionId, setConfirmDeleteSessionId] = useState<string | null>(null);
+  const [deletingSession, setDeletingSession] = useState(false);
 
   // Agent SKU / Checkout Widget Pusher state
   const [showWidgetDrawer, setShowWidgetDrawer] = useState(false);
@@ -382,6 +394,60 @@ export function AdminChatPage() {
     }
   }
 
+  async function handleCleanSingleSession(sessionId: string) {
+    setDeletingSession(true);
+    setActionKind('clean_one');
+    setError('');
+    setSuccessMsg('');
+    try {
+      const res = await apiJson<AdminChatDeleteResult>(`/admin/chat/${sessionId}`, {
+        method: 'DELETE'
+      });
+      setSuccessMsg(res.message);
+      setConfirmDeleteSessionId(null);
+      if (selected === sessionId) {
+        setSelected(null);
+        setDetail(null);
+        setLoadedSessionId(null);
+      }
+      await loadList({ silent: true });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không xóa được phiên chat.');
+    } finally {
+      setDeletingSession(false);
+      setActionKind(null);
+    }
+  }
+
+  async function handleBulkCleanSessions() {
+    setBulkCleaning(true);
+    setError('');
+    setSuccessMsg('');
+    try {
+      const res = await apiJson<AdminChatBulkCleanResult>('/admin/chat/cleanup', {
+        method: 'POST',
+        body: JSON.stringify({ scope: cleanScope })
+      });
+      setSuccessMsg(res.message);
+      setShowBulkCleanModal(false);
+      setCursor('');
+      setCursorStack([]);
+      await loadList({ silent: false });
+      if (selected) {
+        try {
+          await loadDetail(selected, { silent: true });
+        } catch {
+          setSelected(null);
+          setDetail(null);
+        }
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không thể dọn dẹp phiên hàng loạt.');
+    } finally {
+      setBulkCleaning(false);
+    }
+  }
+
   const assignedToMe = Boolean(detail && me && detail.assigned_admin_id === me.admin_id);
   const counts = list?.counts_by_mode;
   const totalSessionsCount = counts ? counts.waiting + counts.agent + counts.ai : undefined;
@@ -430,18 +496,35 @@ export function AdminChatPage() {
           </p>
         </div>
 
-        <button
-          type="button"
-          disabled={listLoading}
-          onClick={() => {
-            void loadList({ silent: false });
-            if (selected) void loadDetail(selected, { silent: false });
-          }}
-          className={`retro-btn ${listLoading ? 'is-busy' : ''}`.trim()}
-        >
-          <IconRefresh size={14} className={listLoading ? 'retro-spin' : undefined} />
-          <span>{listLoading && list ? 'ĐANG LÀM MỚI...' : 'LÀM MỚI DANH SÁCH'}</span>
-        </button>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            disabled={bulkCleaning}
+            onClick={() => {
+              setError('');
+              setSuccessMsg('');
+              setShowBulkCleanModal(true);
+            }}
+            className="retro-btn retro-btn-amber"
+            title="Dọn dẹp các phiên AI rỗng, không hoạt động và phiên đăng nhập hết hạn"
+          >
+            <IconTrash size={14} />
+            <span>DỌN DẸP PHIÊN</span>
+          </button>
+
+          <button
+            type="button"
+            disabled={listLoading}
+            onClick={() => {
+              void loadList({ silent: false });
+              if (selected) void loadDetail(selected, { silent: false });
+            }}
+            className={`retro-btn ${listLoading ? 'is-busy' : ''}`.trim()}
+          >
+            <IconRefresh size={14} className={listLoading ? 'retro-spin' : undefined} />
+            <span>{listLoading && list ? 'ĐANG LÀM MỚI...' : 'LÀM MỚI DANH SÁCH'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Mode Filter Tabs + Session Search */}
@@ -561,10 +644,54 @@ export function AdminChatPage() {
             color: '#c0392b',
             padding: '10px 14px',
             borderRadius: '4px',
-            fontSize: '13px'
+            fontSize: '13px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: '8px'
           }}
         >
-          <strong>Lỗi: </strong> {error}
+          <div>
+            <strong>Lỗi: </strong> {error}
+          </div>
+          <button
+            type="button"
+            className="retro-icon-btn"
+            aria-label="Đóng thông báo lỗi"
+            onClick={() => setError('')}
+          >
+            <IconClose size={13} />
+          </button>
+        </div>
+      )}
+
+      {successMsg && (
+        <div
+          style={{
+            background: '#eafaf1',
+            border: '1.5px solid #27ae60',
+            color: '#1e8449',
+            padding: '10px 14px',
+            borderRadius: '4px',
+            fontSize: '13px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: '8px'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700 }}>
+            <IconCheck size={15} />
+            <span>{successMsg}</span>
+          </div>
+          <button
+            type="button"
+            className="retro-icon-btn"
+            aria-label="Đóng thông báo"
+            onClick={() => setSuccessMsg('')}
+          >
+            <IconClose size={13} />
+          </button>
         </div>
       )}
 
@@ -665,7 +792,10 @@ export function AdminChatPage() {
                     color: 'var(--text-muted)'
                   }}
                 >
-                  <span>{session.customer_email ? 'Thành viên' : 'Khách vãng lai'}</span>
+                  <span>
+                    {session.customer_email ? 'Thành viên' : 'Khách vãng lai'}
+                    {session.message_count !== undefined ? ` · ${session.message_count} tin` : ''}
+                  </span>
                   <span>
                     {new Date(session.updated_at).toLocaleTimeString('vi-VN', {
                       hour: '2-digit',
@@ -856,6 +986,22 @@ export function AdminChatPage() {
                       <span>TRẢ VỀ AI (RELEASE)</span>
                     </button>
                   )}
+
+                  <button
+                    type="button"
+                    disabled={busy || deletingSession}
+                    onClick={() => setConfirmDeleteSessionId(selected)}
+                    className="retro-btn"
+                    style={{
+                      fontSize: '12px',
+                      color: '#c0392b',
+                      borderColor: '#c0392b'
+                    }}
+                    title="Xóa hoặc làm sạch lịch sử phiên chat này"
+                  >
+                    <IconTrash size={13} />
+                    <span>XÓA PHIÊN</span>
+                  </button>
                 </div>
               </div>
 
@@ -1404,6 +1550,245 @@ export function AdminChatPage() {
           )}
         </div>
       </div>
+
+      {/* Single Session Delete Confirmation Modal */}
+      {confirmDeleteSessionId && (
+        <div
+          className="retro-modal-backdrop"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(28, 26, 23, 0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1200,
+            padding: '16px'
+          }}
+          onClick={() => !deletingSession && setConfirmDeleteSessionId(null)}
+        >
+          <div
+            className="retro-window"
+            style={{ width: '100%', maxWidth: '460px' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="retro-window-header">
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <IconTrash size={14} />
+                <span>XÁC NHẬN DỌN / XÓA PHIÊN CHAT</span>
+              </span>
+              <button
+                type="button"
+                className="retro-icon-btn"
+                disabled={deletingSession}
+                aria-label="Đóng hộp thoại"
+                onClick={() => setConfirmDeleteSessionId(null)}
+              >
+                <IconClose size={14} />
+              </button>
+            </div>
+            <div
+              style={{
+                padding: '16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px',
+                fontSize: '13px',
+                lineHeight: 1.5
+              }}
+            >
+              <p style={{ margin: 0 }}>
+                Bạn có chắc chắn muốn xóa phiên hội thoại{' '}
+                <code>#{confirmDeleteSessionId.slice(0, 8)}</code>?
+              </p>
+              <div
+                style={{
+                  padding: '10px 12px',
+                  background: '#FFF7DF',
+                  border: '1px solid var(--ink-border)',
+                  borderRadius: '4px',
+                  fontSize: '12px'
+                }}
+              >
+                • Toàn bộ lịch sử tin nhắn, lượt gọi AI và báo giá nháp chưa xác nhận của phiên này
+                sẽ bị xóa sạch.
+                <br />• Nếu phiên đã phát sinh đơn hàng trong lịch sử, hệ thống sẽ giữ lại liên kết
+                mã đơn và làm sạch phiên khỏi danh sách chat.
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  gap: '8px',
+                  marginTop: '4px'
+                }}
+              >
+                <button
+                  type="button"
+                  disabled={deletingSession}
+                  onClick={() => setConfirmDeleteSessionId(null)}
+                  className="retro-btn"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  disabled={deletingSession}
+                  onClick={() => void handleCleanSingleSession(confirmDeleteSessionId)}
+                  className={`retro-btn retro-btn-primary ${deletingSession ? 'is-busy' : ''}`.trim()}
+                  style={{ background: '#c0392b', color: '#fff' }}
+                >
+                  {deletingSession ? <IconSpinner size={14} /> : <IconTrash size={14} />}
+                  <span>{deletingSession ? 'ĐANG XÓA...' : 'XÓA PHIÊN NGAY'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Session Cleanup Modal */}
+      {showBulkCleanModal && (
+        <div
+          className="retro-modal-backdrop"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(28, 26, 23, 0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1200,
+            padding: '16px'
+          }}
+          onClick={() => !bulkCleaning && setShowBulkCleanModal(false)}
+        >
+          <div
+            className="retro-window"
+            style={{ width: '100%', maxWidth: '540px' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="retro-window-header">
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <IconTrash size={14} />
+                <span>DỌN DẸP PHIÊN HỘI THOẠI & ĐĂNG NHẬP DƯ THỪA</span>
+              </span>
+              <button
+                type="button"
+                className="retro-icon-btn"
+                disabled={bulkCleaning}
+                aria-label="Đóng hộp thoại"
+                onClick={() => setShowBulkCleanModal(false)}
+              >
+                <IconClose size={14} />
+              </button>
+            </div>
+            <div
+              style={{
+                padding: '16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px',
+                fontSize: '13px'
+              }}
+            >
+              <p style={{ margin: 0, color: 'var(--ink-secondary)', lineHeight: 1.5 }}>
+                Chọn phạm vi dọn dẹp. Hệ thống tuyệt đối <strong>không đụng tới</strong> các phiên
+                khách đang chờ nhân viên (WAITING) hoặc phiên đang được nhân sự trực tiếp tiếp nhận
+                (AGENT).
+              </p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {[
+                  {
+                    value: 'empty_or_expired' as AdminChatCleanScope,
+                    title: '1. Phiên rỗng (0 tin nhắn) hoặc đã quá hạn (Khuyên dùng)',
+                    desc: 'Xóa các phiên vãng lai chỉ mở trang mà không nhắn tin, phiên đã hết hạn 30 ngày và các token đăng nhập hết hạn.'
+                  },
+                  {
+                    value: 'inactive_ai_24h' as AdminChatCleanScope,
+                    title: '2. Phiên AI tự động không hoạt động trên 24 giờ',
+                    desc: 'Dọn dẹp toàn bộ phiên AI đã ngừng tương tác hơn 24 giờ qua (giữ lại phiên mới trong ngày).'
+                  },
+                  {
+                    value: 'all_ai_idle' as AdminChatCleanScope,
+                    title: '3. Tất cả phiên AI tự động không chờ nhân viên',
+                    desc: 'Làm sạch toàn bộ danh sách phiên AI tự động hiện tại để làm mới bảng điều khiển CSKH.'
+                  }
+                ].map(option => {
+                  const active = cleanScope === option.value;
+                  return (
+                    <label
+                      key={option.value}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '10px',
+                        padding: '10px 12px',
+                        borderRadius: '4px',
+                        border: active
+                          ? '2px solid var(--ink-border)'
+                          : '1.5px solid var(--ink-border)',
+                        background: active ? '#FFF7DF' : 'var(--bg-surface)',
+                        boxShadow: active ? '2px 2px 0px var(--ink-border)' : 'none',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="clean_scope"
+                        checked={active}
+                        onChange={() => setCleanScope(option.value)}
+                        style={{ marginTop: '3px' }}
+                      />
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: '13px' }}>{option.title}</div>
+                        <div
+                          style={{
+                            fontSize: '12px',
+                            color: 'var(--ink-secondary)',
+                            marginTop: '2px',
+                            lineHeight: 1.4
+                          }}
+                        >
+                          {option.desc}
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  gap: '8px',
+                  marginTop: '6px'
+                }}
+              >
+                <button
+                  type="button"
+                  disabled={bulkCleaning}
+                  onClick={() => setShowBulkCleanModal(false)}
+                  className="retro-btn"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  disabled={bulkCleaning}
+                  onClick={() => void handleBulkCleanSessions()}
+                  className={`retro-btn retro-btn-primary ${bulkCleaning ? 'is-busy' : ''}`.trim()}
+                >
+                  {bulkCleaning ? <IconSpinner size={14} /> : <IconTrash size={14} />}
+                  <span>{bulkCleaning ? 'ĐANG DỌN DẸP...' : 'THỰC HIỆN DỌN DẸP'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

@@ -333,7 +333,9 @@ test('admin catalog bulk-patch, catalog meta, CRM 360, guest promotion, and staf
     'CUSTOMER_CREATE',
     'CUSTOMER_PASSWORD_RESET',
     'CUSTOMER_LINK_ORDERS',
-    'GUEST_PROMOTE_MEMBER'
+    'GUEST_PROMOTE_MEMBER',
+    'CHAT_SESSION_CLEAN',
+    'CHAT_SESSIONS_BULK_CLEAN'
   ] as const) {
     assert.ok(adminAuditActions.includes(action), `Missing audit action ${action}`);
   }
@@ -488,6 +490,38 @@ test('admin catalog bulk-patch, catalog meta, CRM 360, guest promotion, and staf
       payload: {}
     });
     assert.equal(forgedRevoke.statusCode, 403);
+
+    // DELETE /api/v1/admin/chat/:id (valid origin -> 401; forged origin -> 403)
+    const validChatDelete = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/admin/chat/${sampleId}`,
+      headers: { origin: 'http://localhost:5173' }
+    });
+    assert.equal(validChatDelete.statusCode, 401);
+
+    const forgedChatDelete = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/admin/chat/${sampleId}`,
+      headers: { origin: 'https://evil.example' }
+    });
+    assert.equal(forgedChatDelete.statusCode, 403);
+
+    // POST /api/v1/admin/chat/cleanup (valid scope -> 401; invalid scope -> 400)
+    const validBulkCleanup = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/chat/cleanup',
+      headers,
+      payload: { scope: 'empty_or_expired' }
+    });
+    assert.equal(validBulkCleanup.statusCode, 401);
+
+    const invalidBulkCleanup = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/chat/cleanup',
+      headers,
+      payload: { scope: 'delete_everything' }
+    });
+    assert.equal(invalidBulkCleanup.statusCode, 400);
   } finally {
     await app.close();
   }

@@ -17,6 +17,9 @@ import {
   adminCatalogDeleteResultSchema,
   adminCatalogMetaSchema,
   adminCatalogSorts,
+  adminChatBulkCleanResultSchema,
+  adminChatCleanScopes,
+  adminChatDeleteResultSchema,
   adminChatHistorySchema,
   adminChatPageSchema,
   adminCustomerDetailSchema,
@@ -45,6 +48,7 @@ import {
   usageCategories,
   type AdminBulkVariantAction,
   type AdminCatalogSort,
+  type AdminChatCleanScope,
   type AdminImageUploadInput,
   type AdminRole,
   type AdminStockFilter,
@@ -68,7 +72,13 @@ import {
   patchCatalog,
   updateLaptopImages
 } from './catalog.js';
-import { adminChatHistory, adminChatSessions, sendAgentMessage } from './chat.js';
+import {
+  adminChatHistory,
+  adminChatSessions,
+  bulkCleanAdminChatSessions,
+  cleanAdminChatSession,
+  sendAgentMessage
+} from './chat.js';
 import {
   createAdminCustomer,
   getCustomer,
@@ -635,6 +645,39 @@ export async function adminRoutes(app: FastifyInstance) {
         message,
         attachment
       );
+    }
+  );
+
+  app.delete<{ Params: { id: string } }>(
+    '/admin/chat/:id',
+    {
+      schema: {
+        params: idParams,
+        response: { 200: adminChatDeleteResultSchema }
+      }
+    },
+    async request => {
+      const admin = await adminSession(request);
+      return cleanAdminChatSession(request.params.id, admin.admin_id);
+    }
+  );
+
+  app.post<{ Body: { scope: AdminChatCleanScope } }>(
+    '/admin/chat/cleanup',
+    {
+      schema: {
+        body: objectBody(
+          {
+            scope: { type: 'string', enum: [...adminChatCleanScopes] }
+          },
+          ['scope']
+        ),
+        response: { 200: adminChatBulkCleanResultSchema }
+      }
+    },
+    async request => {
+      const admin = await adminSession(request);
+      return bulkCleanAdminChatSessions(request.body.scope, admin.admin_id);
     }
   );
 

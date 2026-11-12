@@ -1,10 +1,23 @@
 import { randomUUID } from 'node:crypto';
-import type { AdminChatSession, ChatWidget, VariantSummary } from '@lapbot/contracts';
+import type {
+  AdminChatBulkCleanResult,
+  AdminChatCleanScope,
+  AdminChatDeleteResult,
+  AdminChatSession,
+  ChatWidget,
+  VariantSummary
+} from '@lapbot/contracts';
 import { pool } from '../../db/pool.js';
 import { decodeKeysetCursor, encodeKeysetCursor } from '../../lib/cursor.js';
 import { AppError, conflict, notFound } from '../../lib/errors.js';
 import { getVariant } from '../catalog/service.js';
+import { closeGate } from '../chat/control-gate.js';
 import { history } from '../chat/repository.js';
+
+const NOT_CLEANED_EMPTY_SQL = `NOT (
+  COALESCE(cs.sales_context->>'_admin_cleaned', 'false') = 'true'
+  AND NOT EXISTS (SELECT 1 FROM chat_messages cm WHERE cm.session_id = cs.id)
+)`;
 
 export async function adminChatSessions(
   needsHuman: boolean | undefined,
@@ -21,10 +34,11 @@ export async function adminChatSessions(
 
   const countsRes = await pool.query(`
     SELECT
-      COUNT(*) FILTER (WHERE control_mode = 'AI' AND needs_human = true)::int AS waiting,
-      COUNT(*) FILTER (WHERE control_mode = 'AGENT')::int AS agent,
-      COUNT(*) FILTER (WHERE control_mode = 'AI' AND needs_human = false)::int AS ai
-    FROM chat_sessions
+      COUNT(*) FILTER (WHERE cs.control_mode = 'AI' AND cs.needs_human = true)::int AS waiting,
+      COUNT(*) FILTER (WHERE cs.control_mode = 'AGENT')::int AS agent,
+      COUNT(*) FILTER (WHERE cs.control_mode = 'AI' AND cs.needs_human = false)::int AS ai
+    FROM chat_sessions cs
+    WHERE ${NOT_CLEANED_EMPTY_SQL}
   `);
   const cRow = countsRes.rows[0] || {};
   const counts_by_mode = {
@@ -34,7 +48,7 @@ export async function adminChatSessions(
   };
 
   const args: unknown[] = [];
-  const whereClauses: string[] = ['true'];
+  const whereClauses: string[] = [NOT_CLEANED_EMPTY_SQL];
 
   if (mode === 'WAITING') {
     whereClauses.push(`cs.needs_human = true AND cs.control_mode = 'AI'`);
@@ -77,7 +91,8 @@ export async function adminChatSessions(
       cs.updated_at,
       cs.customer_id,
       c.full_name AS customer_name,
-      c.email AS customer_email
+      c.email AS customer_email,
+      (SELECT COUNT(*)::int FROM chat_messages cm WHERE cm.session_id = cs.id) AS message_count
     FROM chat_sessions cs
     LEFT JOIN customers c ON c.id = cs.customer_id
     WHERE ${whereClauses.join(' AND ')}
@@ -104,7 +119,8 @@ export async function adminChatSessions(
       updated_at: new Date(row.updated_at).toISOString(),
       customer_id: (row.customer_id as string) || null,
       customer_name: (row.customer_name as string) || null,
-      customer_email: (row.customer_email as string) || null
+      customer_email: (row.customer_email as string) || null,
+      message_count: Number(row.message_count) || 0
     })),
     next_cursor:
       result.rows.length > limit && last
@@ -286,6 +302,252 @@ export async function sendAgentMessage(
       content: insertedRow.content as string,
       widgets: Array.isArray(insertedRow.widgets) ? (insertedRow.widgets as ChatWidget[]) : widgets,
       created_at: new Date(insertedRow.created_at).toISOString()
+    };
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function cleanAdminChatSession(
+  sessionId: string,
+  adminId: string
+): Promise<AdminChatDeleteResult> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const sessionRes = await client.query(
+      'SELECT id, control_mode, assigned_admin_id FROM chat_sessions WHERE id = $1 FOR UPDATE',
+      [sessionId]
+    );
+    if (!sessionRes.rowCount) throw notFound('Không tìm thấy phiên hội thoại.');
+    const sessionRow = sessionRes.rows[0]!;
+
+    if (
+      sessionRow.control_mode === 'AGENT' &&
+      sessionRow.assigned_admin_id &&
+      sessionRow.assigned_admin_id !== adminId
+    ) {
+      throw conflict(
+        'SESSION_CLAIMED_BY_OTHER',
+        'Phiên này đang được nhân viên khác tiếp nhận. Hãy trả phiên về AI trước khi xóa.'
+      );
+    }
+
+    closeGate(sessionId);
+
+    const cancelledQuotes = await client.query(
+      `UPDATE orders
+       SET status = 'CANCELLED_EXPIRED',
+           cancelled_at = now(),
+           updated_at = now()
+       WHERE session_id = $1 AND status = 'PENDING_CONFIRMATION'
+       RETURNING id`,
+      [sessionId]
+    );
+    const cancelled_quotes_count = cancelledQuotes.rowCount ?? 0;
+
+    const deletedMessages = await client.query('DELETE FROM chat_messages WHERE session_id = $1', [
+      sessionId
+    ]);
+    const deleted_messages_count = deletedMessages.rowCount ?? 0;
+    await client.query('DELETE FROM chat_turns WHERE session_id = $1', [sessionId]);
+
+    const orderRefRes = await client.query(
+      'SELECT COUNT(*)::int AS cnt FROM orders WHERE session_id = $1',
+      [sessionId]
+    );
+    const hasOrders = Number(orderRefRes.rows[0]?.cnt ?? 0) > 0;
+
+    let mode: 'deleted' | 'cleared' = 'deleted';
+    if (!hasOrders) {
+      await client.query('DELETE FROM chat_sessions WHERE id = $1', [sessionId]);
+      mode = 'deleted';
+    } else {
+      await client.query(
+        `UPDATE chat_sessions
+         SET control_mode = 'AI',
+             control_version = control_version + 1,
+             needs_human = false,
+             human_requested_at = NULL,
+             assigned_admin_id = NULL,
+             sales_context = '{"_admin_cleaned": true}'::jsonb,
+             updated_at = now()
+         WHERE id = $1`,
+        [sessionId]
+      );
+      mode = 'cleared';
+    }
+
+    await client.query(
+      `INSERT INTO audit_events(actor_type, actor_id, action, entity_type, entity_id, metadata)
+       VALUES ('ADMIN', $1, 'CHAT_SESSION_CLEAN', 'CHAT_SESSION', $2, $3::jsonb)`,
+      [
+        adminId,
+        sessionId,
+        JSON.stringify({
+          mode,
+          deleted_messages_count,
+          cancelled_quotes_count
+        })
+      ]
+    );
+
+    await client.query('COMMIT');
+    return {
+      session_id: sessionId,
+      mode,
+      deleted_messages_count,
+      cancelled_quotes_count,
+      message:
+        mode === 'deleted'
+          ? `Đã xóa hoàn toàn phiên #${sessionId.slice(0, 8)} (${deleted_messages_count} tin nhắn).`
+          : `Đã làm sạch lịch sử phiên #${sessionId.slice(0, 8)} (${deleted_messages_count} tin nhắn) và giữ liên kết đơn hàng.`
+    };
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function bulkCleanAdminChatSessions(
+  scope: AdminChatCleanScope,
+  adminId: string
+): Promise<AdminChatBulkCleanResult> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    let scopeFilterSql = '';
+    if (scope === 'empty_or_expired') {
+      scopeFilterSql = `
+        cs.control_mode = 'AI'
+        AND cs.needs_human = false
+        AND (
+          NOT EXISTS (SELECT 1 FROM chat_messages cm WHERE cm.session_id = cs.id)
+          OR cs.expires_at < now()
+        )
+      `;
+    } else if (scope === 'inactive_ai_24h') {
+      scopeFilterSql = `
+        cs.control_mode = 'AI'
+        AND cs.needs_human = false
+        AND cs.updated_at < now() - interval '24 hours'
+      `;
+    } else {
+      scopeFilterSql = `
+        cs.control_mode = 'AI'
+        AND cs.needs_human = false
+      `;
+    }
+
+    const targetRes = await client.query<{ id: string }>(
+      `SELECT cs.id
+       FROM chat_sessions cs
+       WHERE (${scopeFilterSql})
+         AND ${NOT_CLEANED_EMPTY_SQL}
+       FOR UPDATE SKIP LOCKED`
+    );
+
+    const targetIds = targetRes.rows.map(r => r.id);
+    for (const id of targetIds) {
+      closeGate(id);
+    }
+
+    let cancelled_quotes_count = 0;
+    let deleted_messages_count = 0;
+    let deleted_sessions_count = 0;
+    let cleared_sessions_count = 0;
+
+    if (targetIds.length > 0) {
+      const cancelledQuotes = await client.query(
+        `UPDATE orders
+         SET status = 'CANCELLED_EXPIRED',
+             cancelled_at = now(),
+             updated_at = now()
+         WHERE session_id = ANY($1::uuid[]) AND status = 'PENDING_CONFIRMATION'`,
+        [targetIds]
+      );
+      cancelled_quotes_count = cancelledQuotes.rowCount ?? 0;
+
+      const deletedMsgs = await client.query(
+        'DELETE FROM chat_messages WHERE session_id = ANY($1::uuid[])',
+        [targetIds]
+      );
+      deleted_messages_count = deletedMsgs.rowCount ?? 0;
+
+      await client.query('DELETE FROM chat_turns WHERE session_id = ANY($1::uuid[])', [targetIds]);
+
+      const hardDeleted = await client.query(
+        `DELETE FROM chat_sessions cs
+         WHERE cs.id = ANY($1::uuid[])
+           AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.session_id = cs.id)
+         RETURNING cs.id`,
+        [targetIds]
+      );
+      deleted_sessions_count = hardDeleted.rowCount ?? 0;
+
+      const hardDeletedSet = new Set(hardDeleted.rows.map(r => r.id));
+      const remainingIds = targetIds.filter(id => !hardDeletedSet.has(id));
+      if (remainingIds.length > 0) {
+        const clearedRes = await client.query(
+          `UPDATE chat_sessions
+           SET control_mode = 'AI',
+               control_version = control_version + 1,
+               needs_human = false,
+               human_requested_at = NULL,
+               assigned_admin_id = NULL,
+               sales_context = '{"_admin_cleaned": true}'::jsonb,
+               updated_at = now()
+           WHERE id = ANY($1::uuid[])`,
+          [remainingIds]
+        );
+        cleared_sessions_count = clearedRes.rowCount ?? 0;
+      }
+    }
+
+    const purgedAdminAuth = await client.query(
+      'DELETE FROM admin_sessions WHERE expires_at < now()'
+    );
+    const purgedCustomerAuth = await client.query(
+      'DELETE FROM customer_sessions WHERE expires_at < now()'
+    );
+    const purged_auth_sessions_count =
+      (purgedAdminAuth.rowCount ?? 0) + (purgedCustomerAuth.rowCount ?? 0);
+
+    await client.query(
+      `INSERT INTO audit_events(actor_type, actor_id, action, entity_type, entity_id, metadata)
+       VALUES ('ADMIN', $1, 'CHAT_SESSIONS_BULK_CLEAN', 'CHAT_SESSION', NULL, $2::jsonb)`,
+      [
+        adminId,
+        JSON.stringify({
+          scope,
+          deleted_sessions_count,
+          cleared_sessions_count,
+          deleted_messages_count,
+          cancelled_quotes_count,
+          purged_auth_sessions_count
+        })
+      ]
+    );
+
+    await client.query('COMMIT');
+    const totalCleaned = deleted_sessions_count + cleared_sessions_count;
+    return {
+      scope,
+      deleted_sessions_count,
+      cleared_sessions_count,
+      deleted_messages_count,
+      cancelled_quotes_count,
+      purged_auth_sessions_count,
+      message:
+        totalCleaned > 0 || purged_auth_sessions_count > 0
+          ? `Đã dọn dẹp ${totalCleaned} phiên hội thoại (${deleted_messages_count} tin nhắn) và ${purged_auth_sessions_count} phiên đăng nhập hết hạn.`
+          : 'Hệ thống đã gọn sạch — không có phiên dư thừa nào cần dọn dẹp.'
     };
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});

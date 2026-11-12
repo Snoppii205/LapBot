@@ -69,11 +69,13 @@ function formatSsd(ssdGb: number): string {
 function AddressFormTicketCard({
   variantId,
   onBuyNow,
-  onCloseDrawer
+  onSelectVariant,
+  onOpenCart
 }: {
   variantId: string;
   onBuyNow: (variantId: string) => void;
-  onCloseDrawer: () => void;
+  onSelectVariant: (variantId: string) => void;
+  onOpenCart: () => void;
 }) {
   const cart = useCart();
   const [detail, setDetail] = useState<VariantDetail | null>(null);
@@ -109,7 +111,7 @@ function AddressFormTicketCard({
             <Link
               to={`/products/${variantId}`}
               className="chat-product-thumb"
-              onClick={onCloseDrawer}
+              onClick={() => onSelectVariant(variantId)}
               tabIndex={-1}
               aria-hidden="true"
             >
@@ -166,8 +168,7 @@ function AddressFormTicketCard({
               className={`chat-btn-cart ${inCart ? 'in-cart' : ''}`}
               onClick={() => {
                 if (inCart) {
-                  onCloseDrawer();
-                  cart.openCart();
+                  onOpenCart();
                 } else {
                   cart.addItem(variantId, {
                     snapshot: detail ? toCartSnapshot(detail) : undefined
@@ -191,7 +192,7 @@ function Widget({
   onAddCart,
   hasInCart,
   onOpenCart,
-  onCloseDrawer,
+  onSelectVariant,
   onAskVariant
 }: {
   widget: ChatWidget;
@@ -199,7 +200,7 @@ function Widget({
   onAddCart: (item: VariantSummary) => void;
   hasInCart: (variantId: string) => boolean;
   onOpenCart: () => void;
-  onCloseDrawer: () => void;
+  onSelectVariant: (variantId: string) => void;
   onAskVariant: (variantId: string, title: string) => void;
 }) {
   if (widget.widget_type === 'address_form') {
@@ -207,7 +208,8 @@ function Widget({
       <AddressFormTicketCard
         variantId={widget.payload.variant_id}
         onBuyNow={onBuyNow}
-        onCloseDrawer={onCloseDrawer}
+        onSelectVariant={onSelectVariant}
+        onOpenCart={onOpenCart}
       />
     );
   }
@@ -237,7 +239,7 @@ function Widget({
                     <Link
                       to={`/products/${item.variant_id}`}
                       className="chat-product-thumb"
-                      onClick={onCloseDrawer}
+                      onClick={() => onSelectVariant(item.variant_id)}
                       tabIndex={-1}
                       aria-hidden="true"
                     >
@@ -265,7 +267,7 @@ function Widget({
                     <Link
                       to={`/products/${item.variant_id}`}
                       className="chat-product-title-link"
-                      onClick={onCloseDrawer}
+                      onClick={() => onSelectVariant(item.variant_id)}
                     >
                       <strong>{title}</strong>
                     </Link>
@@ -330,7 +332,7 @@ function Widget({
                   <Link
                     to={`/products/${item.variant_id}`}
                     className="chat-btn-view"
-                    onClick={onCloseDrawer}
+                    onClick={() => onSelectVariant(item.variant_id)}
                   >
                     <span>Chi tiết</span>
                     <IconExternalLink size={12} />
@@ -628,6 +630,10 @@ export function ChatDrawer() {
   const handleBuyNow = (variantId: string) => {
     chat.closeChat();
     navigate(`/checkout/${variantId}`);
+  };
+
+  const handleSelectVariant = (variantId: string) => {
+    chat.setSelectedVariant(variantId);
   };
 
   const handleAddCart = (item: VariantSummary) => {
@@ -1004,7 +1010,7 @@ export function ChatDrawer() {
                           onAddCart={handleAddCart}
                           hasInCart={cart.hasItem}
                           onOpenCart={handleOpenCartFromChat}
-                          onCloseDrawer={chat.closeChat}
+                          onSelectVariant={handleSelectVariant}
                           onAskVariant={handleAskVariant}
                         />
                       ))}
@@ -1072,7 +1078,7 @@ export function ChatDrawer() {
                         onAddCart={handleAddCart}
                         hasInCart={cart.hasItem}
                         onOpenCart={handleOpenCartFromChat}
-                        onCloseDrawer={chat.closeChat}
+                        onSelectVariant={handleSelectVariant}
                         onAskVariant={handleAskVariant}
                       />
                     ))}
@@ -1128,7 +1134,7 @@ export function ChatDrawer() {
                       onAddCart={handleAddCart}
                       hasInCart={cart.hasItem}
                       onOpenCart={handleOpenCartFromChat}
-                      onCloseDrawer={chat.closeChat}
+                      onSelectVariant={handleSelectVariant}
                       onAskVariant={handleAskVariant}
                     />
                   ))}

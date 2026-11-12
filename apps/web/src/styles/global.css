@@ -1886,6 +1886,18 @@ button:disabled {
   background: #fff9ea;
   border-bottom: 1px solid var(--border-light);
   flex-shrink: 0;
+  animation: chatPinnedBarSlideIn 0.22s var(--ease-spring);
+}
+
+@keyframes chatPinnedBarSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .chat-pinned-top {
@@ -2652,6 +2664,15 @@ button:disabled {
 .chat-btn-ask svg,
 .chat-btn-view svg {
   flex-shrink: 0;
+}
+
+.chat-btn-buy span,
+.chat-btn-cart span,
+.chat-btn-ask span,
+.chat-btn-view span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-btn-buy {

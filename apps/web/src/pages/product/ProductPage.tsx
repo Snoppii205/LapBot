@@ -85,6 +85,7 @@ export function ProductPage() {
 
   useEffect(() => {
     if (!variant_id) return;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
     let active = true;
     setLoading(true);
     setError('');

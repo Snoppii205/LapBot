@@ -63,14 +63,13 @@ if (aiEnabled) {
     throw new Error('LLM_BASE_URL must be an absolute URL');
   }
   if (
-    (nodeEnv === 'production' && llmUrl.protocol !== 'https:') ||
     !['http:', 'https:'].includes(llmUrl.protocol) ||
     llmUrl.username ||
     llmUrl.password ||
     llmUrl.search ||
     llmUrl.hash
   ) {
-    throw new Error('LLM_BASE_URL must be HTTPS without credentials, query, or fragment');
+    throw new Error('LLM_BASE_URL must be HTTP/HTTPS without credentials, query, or fragment');
   }
   if (!llmUrl.pathname.replace(/\/$/, '').endsWith('/v1')) {
     throw new Error('LLM_BASE_URL must end with /v1');
