@@ -12,6 +12,7 @@ import type {
 } from '@lapbot/contracts';
 import { apiJson } from '../../lib/api-client.js';
 import { money } from '../../lib/format.js';
+import { useAnimatedPresence, usePresenceValue } from '../../lib/use-animated-presence.js';
 import { ChatMessageContent } from '../../components/chat/ChatMessageContent.js';
 import {
   AdminDetailPaneSkeleton,
@@ -210,6 +211,10 @@ export function AdminChatPage() {
   const [bulkCleaning, setBulkCleaning] = useState(false);
   const [confirmDeleteSessionId, setConfirmDeleteSessionId] = useState<string | null>(null);
   const [deletingSession, setDeletingSession] = useState(false);
+
+  const singleDeletePresence = usePresenceValue(confirmDeleteSessionId, 150);
+  const bulkCleanPresence = useAnimatedPresence(showBulkCleanModal, 150);
+  const activeDeleteSessionId = singleDeletePresence.activeValue;
 
   // Agent SKU / Checkout Widget Pusher state
   const [showWidgetDrawer, setShowWidgetDrawer] = useState(false);
@@ -1008,6 +1013,7 @@ export function AdminChatPage() {
               {/* Agent Interactive SKU & COD Widget Pusher */}
               {detail.control_mode === 'AGENT' && assignedToMe && showWidgetDrawer && (
                 <div
+                  className="os-stage-enter"
                   style={{
                     marginTop: '10px',
                     padding: '10px 12px',
@@ -1552,9 +1558,9 @@ export function AdminChatPage() {
       </div>
 
       {/* Single Session Delete Confirmation Modal */}
-      {confirmDeleteSessionId && (
+      {activeDeleteSessionId && (
         <div
-          className="retro-modal-backdrop"
+          className={`retro-modal-backdrop ${singleDeletePresence.stateClass}`}
           style={{
             position: 'fixed',
             inset: 0,
@@ -1599,7 +1605,7 @@ export function AdminChatPage() {
             >
               <p style={{ margin: 0 }}>
                 Bạn có chắc chắn muốn xóa phiên hội thoại{' '}
-                <code>#{confirmDeleteSessionId.slice(0, 8)}</code>?
+                <code>#{activeDeleteSessionId.slice(0, 8)}</code>?
               </p>
               <div
                 style={{
@@ -1634,7 +1640,7 @@ export function AdminChatPage() {
                 <button
                   type="button"
                   disabled={deletingSession}
-                  onClick={() => void handleCleanSingleSession(confirmDeleteSessionId)}
+                  onClick={() => void handleCleanSingleSession(activeDeleteSessionId)}
                   className={`retro-btn retro-btn-primary ${deletingSession ? 'is-busy' : ''}`.trim()}
                   style={{ background: '#c0392b', color: '#fff' }}
                 >
@@ -1648,9 +1654,9 @@ export function AdminChatPage() {
       )}
 
       {/* Bulk Session Cleanup Modal */}
-      {showBulkCleanModal && (
+      {bulkCleanPresence.rendered && (
         <div
-          className="retro-modal-backdrop"
+          className={`retro-modal-backdrop ${bulkCleanPresence.stateClass}`}
           style={{
             position: 'fixed',
             inset: 0,

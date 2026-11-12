@@ -31,6 +31,7 @@ import { apiJson, ApiClientError } from '../../lib/api-client.js';
 import { catalogImageUrl } from '../../lib/catalog-image.js';
 import { downloadCsv } from '../../lib/csv.js';
 import { formatLaptopTitle, money } from '../../lib/format.js';
+import { useAnimatedPresence, usePresenceValue } from '../../lib/use-animated-presence.js';
 import {
   AdminKpiGridSkeleton,
   AdminTableRowsSkeleton,
@@ -306,6 +307,17 @@ export function AdminCatalogPage() {
   // Unsaved-changes confirmation inside Drawer
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
 
+  const drawerPresence = usePresenceValue(drawerMode !== 'closed' ? drawerMode : null, 175);
+  const activeDrawerMode = drawerPresence.activeValue;
+  const discardModal = useAnimatedPresence(confirmDiscardOpen, 150);
+  const galleryModal = usePresenceValue(
+    showImageModal && galleryTargetLaptop ? galleryTargetLaptop : null,
+    150
+  );
+  const activeGalleryLaptop = galleryModal.activeValue;
+  const deleteModal = usePresenceValue(deleteTarget, 150);
+  const activeDeleteTarget = deleteModal.activeValue;
+
   const coverFileInputRef = useRef<HTMLInputElement | null>(null);
   const galleryFileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -475,10 +487,6 @@ export function AdminCatalogPage() {
   const forceCloseDrawer = () => {
     setConfirmDiscardOpen(false);
     setDrawerMode('closed');
-    setSelectedLaptop(null);
-    setLaptopDraft(null);
-    setSelectedVariant(null);
-    setVariantDraft(null);
   };
 
   const openCreateLaptopDrawer = () => {
@@ -2533,12 +2541,16 @@ export function AdminCatalogPage() {
       </div>
 
       {/* Slide-Over Drawer for Create / Edit Laptop or SKU */}
-      {drawerMode !== 'closed' && (
-        <div className="admin-drawer-backdrop" onClick={requestCloseDrawer}>
+      {activeDrawerMode && (
+        <div
+          className={`admin-drawer-backdrop ${drawerPresence.stateClass}`}
+          onClick={requestCloseDrawer}
+        >
           <aside
             className="admin-drawer"
             style={{ position: 'relative' }}
             onClick={e => e.stopPropagation()}
+            aria-hidden={drawerPresence.closing || undefined}
             aria-label="Biểu mẫu chỉnh sửa sản phẩm"
           >
             <RetroTopProgress active={busy || uploadingCover} label="Đang lưu thay đổi danh mục" />
@@ -2546,11 +2558,11 @@ export function AdminCatalogPage() {
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                 <IconTag size={15} />
                 <span>
-                  {drawerMode === 'create_laptop' && 'THÊM DÒNG MÁY LAPTOP MỚI'}
-                  {drawerMode === 'edit_laptop' &&
+                  {activeDrawerMode === 'create_laptop' && 'THÊM DÒNG MÁY LAPTOP MỚI'}
+                  {activeDrawerMode === 'edit_laptop' &&
                     `HIỆU CHỈNH DÒNG MÁY // ${selectedLaptop?.brand ?? ''} ${selectedLaptop?.model_name ?? ''}`}
-                  {drawerMode === 'create_variant' && 'THÊM PHIÊN BẢN CẤU HÌNH (SKU) MỚI'}
-                  {drawerMode === 'edit_variant' &&
+                  {activeDrawerMode === 'create_variant' && 'THÊM PHIÊN BẢN CẤU HÌNH (SKU) MỚI'}
+                  {activeDrawerMode === 'edit_variant' &&
                     `HIỆU CHỈNH SKU // ${selectedVariant?.sku ?? ''}`}
                 </span>
               </span>
@@ -2564,355 +2576,159 @@ export function AdminCatalogPage() {
               </button>
             </div>
 
-            {(drawerMode === 'create_laptop' || drawerMode === 'edit_laptop') && laptopDraft && (
-              <form
-                onSubmit={saveLaptop}
-                style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
-              >
-                <div className="admin-drawer-body">
-                  <div className="admin-grid-brand-model">
-                    <div>
-                      <label
-                        style={{
-                          display: 'block',
-                          fontSize: '12px',
-                          fontWeight: 700,
-                          marginBottom: '4px'
-                        }}
-                      >
-                        Thương hiệu (Brand) *
-                      </label>
-                      <input
-                        list="admin-brand-suggestions"
-                        required
-                        placeholder="Asus, Apple, Lenovo, MSI..."
-                        value={laptopDraft.brand}
-                        onChange={e => setLaptopDraft({ ...laptopDraft, brand: e.target.value })}
-                        style={{
-                          width: '100%',
-                          padding: '8px 10px',
-                          border: '1.5px solid var(--ink-border)',
-                          borderRadius: '4px',
-                          fontSize: '13px'
-                        }}
-                      />
-                      <datalist id="admin-brand-suggestions">
-                        {(meta?.brands ?? []).map(b => (
-                          <option key={b} value={b} />
-                        ))}
-                      </datalist>
-                    </div>
-
-                    <div>
-                      <label
-                        style={{
-                          display: 'block',
-                          fontSize: '12px',
-                          fontWeight: 700,
-                          marginBottom: '4px'
-                        }}
-                      >
-                        Tên dòng máy (Model Name) *
-                      </label>
-                      <input
-                        required
-                        placeholder="VD: ThinkPad X1 Carbon Gen 12"
-                        value={laptopDraft.model_name}
-                        onChange={e =>
-                          setLaptopDraft({ ...laptopDraft, model_name: e.target.value })
-                        }
-                        style={{
-                          width: '100%',
-                          padding: '8px 10px',
-                          border: '1.5px solid var(--ink-border)',
-                          borderRadius: '4px',
-                          fontSize: '13px'
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Cover Image Section */}
-                  <div
-                    style={{
-                      padding: '12px',
-                      background: 'var(--bg-surface-raised)',
-                      border: '1.5px solid var(--ink-border)',
-                      borderRadius: '6px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '10px'
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        flexWrap: 'wrap',
-                        gap: '8px'
-                      }}
-                    >
-                      <strong style={{ fontSize: '12px', fontFamily: 'var(--font-mono)' }}>
-                        ẢNH ĐẠI DIỆN CHÍNH (ĐỒNG BỘ VỊ TRÍ #1 GALLERY)
-                      </strong>
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        <input
-                          ref={coverFileInputRef}
-                          type="file"
-                          accept="image/jpeg,image/png,image/webp"
-                          onChange={handleCoverFileChange}
-                          style={{ display: 'none' }}
-                        />
-                        <button
-                          type="button"
-                          disabled={uploadingCover}
-                          className={`retro-btn retro-btn-sm ${uploadingCover ? 'is-busy' : ''}`}
-                          onClick={() => coverFileInputRef.current?.click()}
+            {(activeDrawerMode === 'create_laptop' || activeDrawerMode === 'edit_laptop') &&
+              laptopDraft && (
+                <form
+                  onSubmit={saveLaptop}
+                  style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
+                >
+                  <div className="admin-drawer-body">
+                    <div className="admin-grid-brand-model">
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            marginBottom: '4px'
+                          }}
                         >
-                          {uploadingCover ? <IconSpinner size={13} /> : <IconUpload size={13} />}
-                          <span>{uploadingCover ? 'Đang tải...' : 'Tải ảnh từ máy'}</span>
-                        </button>
-                        {selectedLaptop && (
-                          <button
-                            type="button"
-                            className="retro-btn retro-btn-amber retro-btn-sm"
-                            onClick={() => openGalleryModal(selectedLaptop)}
-                          >
-                            <IconImage size={13} />
-                            <span>Thư viện ảnh ({selectedLaptop.images?.length ?? 0})</span>
-                          </button>
-                        )}
+                          Thương hiệu (Brand) *
+                        </label>
+                        <input
+                          list="admin-brand-suggestions"
+                          required
+                          placeholder="Asus, Apple, Lenovo, MSI..."
+                          value={laptopDraft.brand}
+                          onChange={e => setLaptopDraft({ ...laptopDraft, brand: e.target.value })}
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            border: '1.5px solid var(--ink-border)',
+                            borderRadius: '4px',
+                            fontSize: '13px'
+                          }}
+                        />
+                        <datalist id="admin-brand-suggestions">
+                          {(meta?.brands ?? []).map(b => (
+                            <option key={b} value={b} />
+                          ))}
+                        </datalist>
                       </div>
-                    </div>
 
-                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                      <div
-                        className="admin-catalog-thumb"
-                        style={{ width: '84px', height: '60px' }}
-                      >
-                        <ProgressiveImage
-                          src={catalogImageUrl(laptopDraft.image_url)}
-                          alt="Xem trước"
-                          fallback={<IconImage size={20} />}
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            marginBottom: '4px'
+                          }}
+                        >
+                          Tên dòng máy (Model Name) *
+                        </label>
+                        <input
+                          required
+                          placeholder="VD: ThinkPad X1 Carbon Gen 12"
+                          value={laptopDraft.model_name}
+                          onChange={e =>
+                            setLaptopDraft({ ...laptopDraft, model_name: e.target.value })
+                          }
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            border: '1.5px solid var(--ink-border)',
+                            borderRadius: '4px',
+                            fontSize: '13px'
+                          }}
                         />
                       </div>
-                      <input
-                        type="text"
-                        placeholder="URL ảnh đại diện (https://... hoặc /api/v1/catalog/uploads/...)"
-                        value={laptopDraft.image_url}
-                        onChange={e =>
-                          setLaptopDraft({ ...laptopDraft, image_url: e.target.value })
-                        }
-                        style={{
-                          flex: 1,
-                          padding: '8px 10px',
-                          border: '1.5px solid var(--ink-border)',
-                          borderRadius: '4px',
-                          fontSize: '12.5px',
-                          background: '#fff'
-                        }}
-                      />
                     </div>
-                  </div>
 
-                  <div>
-                    <label
-                      style={{
-                        display: 'block',
-                        fontSize: '12px',
-                        fontWeight: 700,
-                        marginBottom: '4px'
-                      }}
-                    >
-                      Mô tả điểm nổi bật & Thiết kế
-                    </label>
-                    <textarea
-                      rows={5}
-                      placeholder="Mô tả chi tiết ưu điểm tản nhiệt, chất liệu vỏ, cổng kết nối, thời lượng pin..."
-                      value={laptopDraft.description}
-                      onChange={e =>
-                        setLaptopDraft({ ...laptopDraft, description: e.target.value })
-                      }
-                      style={{
-                        width: '100%',
-                        padding: '10px',
-                        border: '1.5px solid var(--ink-border)',
-                        borderRadius: '4px',
-                        fontSize: '13px',
-                        resize: 'vertical'
-                      }}
-                    />
-                  </div>
-
-                  <label
-                    className="admin-checkbox-row"
-                    style={{ fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={laptopDraft.is_active}
-                      onChange={e =>
-                        setLaptopDraft({ ...laptopDraft, is_active: e.target.checked })
-                      }
-                    />
-                    <span>Cho phép hiển thị dòng máy này trên Storefront & Trợ lý AI</span>
-                  </label>
-
-                  {selectedLaptop && (
+                    {/* Cover Image Section */}
                     <div
-                      style={{ borderTop: '1.5px dashed var(--border-light)', paddingTop: '12px' }}
+                      style={{
+                        padding: '12px',
+                        background: 'var(--bg-surface-raised)',
+                        border: '1.5px solid var(--ink-border)',
+                        borderRadius: '6px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '10px'
+                      }}
                     >
                       <div
                         style={{
                           display: 'flex',
                           justifyContent: 'space-between',
                           alignItems: 'center',
-                          marginBottom: '8px'
+                          flexWrap: 'wrap',
+                          gap: '8px'
                         }}
                       >
                         <strong style={{ fontSize: '12px', fontFamily: 'var(--font-mono)' }}>
-                          CÁC PHIÊN BẢN SKU THUỘC DÒNG MÁY ({drawerChildVariants.length})
+                          ẢNH ĐẠI DIỆN CHÍNH (ĐỒNG BỘ VỊ TRÍ #1 GALLERY)
                         </strong>
-                        <button
-                          type="button"
-                          className="retro-btn retro-btn-sm"
-                          onClick={() => openCreateVariantDrawer(selectedLaptop.id)}
-                        >
-                          <IconPlus size={12} />
-                          <span>Thêm SKU</span>
-                        </button>
-                      </div>
-                      {drawerChildVariants.length === 0 ? (
-                        <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
-                          Chưa có SKU nào. Hãy thêm ít nhất 1 SKU để sản phẩm xuất hiện trên
-                          Storefront.
-                        </p>
-                      ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                          {drawerChildVariants.map(cv => (
-                            <div
-                              key={cv.id}
-                              style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                padding: '7px 10px',
-                                background: '#fff',
-                                border: '1px solid var(--ink-border)',
-                                borderRadius: '4px',
-                                fontSize: '12px'
-                              }}
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <input
+                            ref={coverFileInputRef}
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            onChange={handleCoverFileChange}
+                            style={{ display: 'none' }}
+                          />
+                          <button
+                            type="button"
+                            disabled={uploadingCover}
+                            className={`retro-btn retro-btn-sm ${uploadingCover ? 'is-busy' : ''}`}
+                            onClick={() => coverFileInputRef.current?.click()}
+                          >
+                            {uploadingCover ? <IconSpinner size={13} /> : <IconUpload size={13} />}
+                            <span>{uploadingCover ? 'Đang tải...' : 'Tải ảnh từ máy'}</span>
+                          </button>
+                          {selectedLaptop && (
+                            <button
+                              type="button"
+                              className="retro-btn retro-btn-amber retro-btn-sm"
+                              onClick={() => openGalleryModal(selectedLaptop)}
                             >
-                              <div>
-                                <strong style={{ fontFamily: 'var(--font-mono)' }}>{cv.sku}</strong>{' '}
-                                · {cv.ram_gb}GB/{cv.ssd_gb}GB
-                              </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span
-                                  style={{
-                                    fontFamily: 'var(--font-mono)',
-                                    fontWeight: 700,
-                                    color: 'var(--accent-primary)'
-                                  }}
-                                >
-                                  {money(cv.price_vnd)}
-                                </span>
-                                <span>Tồn: {cv.stock}</span>
-                                <button
-                                  type="button"
-                                  className="retro-btn retro-btn-sm"
-                                  onClick={() => openEditVariantDrawer(cv)}
-                                >
-                                  Sửa
-                                </button>
-                              </div>
-                            </div>
-                          ))}
+                              <IconImage size={13} />
+                              <span>Thư viện ảnh ({selectedLaptop.images?.length ?? 0})</span>
+                            </button>
+                          )}
                         </div>
-                      )}
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                        <div
+                          className="admin-catalog-thumb"
+                          style={{ width: '84px', height: '60px' }}
+                        >
+                          <ProgressiveImage
+                            src={catalogImageUrl(laptopDraft.image_url)}
+                            alt="Xem trước"
+                            fallback={<IconImage size={20} />}
+                          />
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="URL ảnh đại diện (https://... hoặc /api/v1/catalog/uploads/...)"
+                          value={laptopDraft.image_url}
+                          onChange={e =>
+                            setLaptopDraft({ ...laptopDraft, image_url: e.target.value })
+                          }
+                          style={{
+                            flex: 1,
+                            padding: '8px 10px',
+                            border: '1.5px solid var(--ink-border)',
+                            borderRadius: '4px',
+                            fontSize: '12.5px',
+                            background: '#fff'
+                          }}
+                        />
+                      </div>
                     </div>
-                  )}
-                </div>
 
-                <div className="admin-drawer-footer">
-                  <div>
-                    {selectedLaptop && (
-                      <button
-                        type="button"
-                        className="retro-btn retro-btn-danger"
-                        onClick={() => setDeleteTarget({ kind: 'laptops', item: selectedLaptop })}
-                      >
-                        <IconArchive size={14} />
-                        <span>Xóa / Lưu trữ</span>
-                      </button>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button type="button" className="retro-btn" onClick={requestCloseDrawer}>
-                      Đóng
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={busy}
-                      className={`retro-btn retro-btn-primary ${busy ? 'is-busy' : ''}`}
-                    >
-                      {busy ? <IconSpinner size={14} /> : <IconCheck size={14} />}
-                      <span>
-                        {busy
-                          ? 'Đang lưu...'
-                          : drawerMode === 'create_laptop'
-                            ? 'Tạo dòng máy'
-                            : 'Lưu thay đổi'}
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              </form>
-            )}
-
-            {(drawerMode === 'create_variant' || drawerMode === 'edit_variant') && variantDraft && (
-              <form
-                onSubmit={saveVariant}
-                style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
-              >
-                <div className="admin-drawer-body">
-                  <div>
-                    <label
-                      style={{
-                        display: 'block',
-                        fontSize: '12px',
-                        fontWeight: 700,
-                        marginBottom: '4px'
-                      }}
-                    >
-                      Thuộc dòng máy Laptop (Parent Model) *
-                    </label>
-                    <select
-                      required
-                      value={variantDraft.laptop_id}
-                      onChange={e =>
-                        setVariantDraft({ ...variantDraft, laptop_id: e.target.value })
-                      }
-                      style={{
-                        width: '100%',
-                        padding: '8px 10px',
-                        border: '1.5px solid var(--ink-border)',
-                        borderRadius: '4px',
-                        fontSize: '13px',
-                        background: '#fff'
-                      }}
-                    >
-                      <option value="">-- Chọn dòng máy Laptop --</option>
-                      {(meta?.laptop_options ?? []).map(opt => (
-                        <option key={opt.id} value={opt.id}>
-                          {opt.brand} — {opt.model_name} {!opt.is_active ? '(Lưu trữ)' : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="admin-grid-2col">
                     <div>
                       <label
                         style={{
@@ -2922,23 +2738,164 @@ export function AdminCatalogPage() {
                           marginBottom: '4px'
                         }}
                       >
-                        Mã định danh SKU *
+                        Mô tả điểm nổi bật & Thiết kế
                       </label>
-                      <input
-                        required
-                        placeholder="VD: ASUS-TUF-F15-I7-16-512"
-                        value={variantDraft.sku}
-                        onChange={e => setVariantDraft({ ...variantDraft, sku: e.target.value })}
+                      <textarea
+                        rows={5}
+                        placeholder="Mô tả chi tiết ưu điểm tản nhiệt, chất liệu vỏ, cổng kết nối, thời lượng pin..."
+                        value={laptopDraft.description}
+                        onChange={e =>
+                          setLaptopDraft({ ...laptopDraft, description: e.target.value })
+                        }
                         style={{
                           width: '100%',
-                          padding: '8px 10px',
+                          padding: '10px',
                           border: '1.5px solid var(--ink-border)',
                           borderRadius: '4px',
-                          fontFamily: 'var(--font-mono)',
-                          fontSize: '13px'
+                          fontSize: '13px',
+                          resize: 'vertical'
                         }}
                       />
                     </div>
+
+                    <label
+                      className="admin-checkbox-row"
+                      style={{ fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={laptopDraft.is_active}
+                        onChange={e =>
+                          setLaptopDraft({ ...laptopDraft, is_active: e.target.checked })
+                        }
+                      />
+                      <span>Cho phép hiển thị dòng máy này trên Storefront & Trợ lý AI</span>
+                    </label>
+
+                    {selectedLaptop && (
+                      <div
+                        style={{
+                          borderTop: '1.5px dashed var(--border-light)',
+                          paddingTop: '12px'
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            marginBottom: '8px'
+                          }}
+                        >
+                          <strong style={{ fontSize: '12px', fontFamily: 'var(--font-mono)' }}>
+                            CÁC PHIÊN BẢN SKU THUỘC DÒNG MÁY ({drawerChildVariants.length})
+                          </strong>
+                          <button
+                            type="button"
+                            className="retro-btn retro-btn-sm"
+                            onClick={() => openCreateVariantDrawer(selectedLaptop.id)}
+                          >
+                            <IconPlus size={12} />
+                            <span>Thêm SKU</span>
+                          </button>
+                        </div>
+                        {drawerChildVariants.length === 0 ? (
+                          <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
+                            Chưa có SKU nào. Hãy thêm ít nhất 1 SKU để sản phẩm xuất hiện trên
+                            Storefront.
+                          </p>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {drawerChildVariants.map(cv => (
+                              <div
+                                key={cv.id}
+                                style={{
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  padding: '7px 10px',
+                                  background: '#fff',
+                                  border: '1px solid var(--ink-border)',
+                                  borderRadius: '4px',
+                                  fontSize: '12px'
+                                }}
+                              >
+                                <div>
+                                  <strong style={{ fontFamily: 'var(--font-mono)' }}>
+                                    {cv.sku}
+                                  </strong>{' '}
+                                  · {cv.ram_gb}GB/{cv.ssd_gb}GB
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <span
+                                    style={{
+                                      fontFamily: 'var(--font-mono)',
+                                      fontWeight: 700,
+                                      color: 'var(--accent-primary)'
+                                    }}
+                                  >
+                                    {money(cv.price_vnd)}
+                                  </span>
+                                  <span>Tồn: {cv.stock}</span>
+                                  <button
+                                    type="button"
+                                    className="retro-btn retro-btn-sm"
+                                    onClick={() => openEditVariantDrawer(cv)}
+                                  >
+                                    Sửa
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="admin-drawer-footer">
+                    <div>
+                      {selectedLaptop && (
+                        <button
+                          type="button"
+                          className="retro-btn retro-btn-danger"
+                          onClick={() => setDeleteTarget({ kind: 'laptops', item: selectedLaptop })}
+                        >
+                          <IconArchive size={14} />
+                          <span>Xóa / Lưu trữ</span>
+                        </button>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button type="button" className="retro-btn" onClick={requestCloseDrawer}>
+                        Đóng
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={busy}
+                        className={`retro-btn retro-btn-primary ${busy ? 'is-busy' : ''}`}
+                      >
+                        {busy ? <IconSpinner size={14} /> : <IconCheck size={14} />}
+                        <span>
+                          {busy
+                            ? 'Đang lưu...'
+                            : activeDrawerMode === 'create_laptop'
+                              ? 'Tạo dòng máy'
+                              : 'Lưu thay đổi'}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              )}
+
+            {(activeDrawerMode === 'create_variant' || activeDrawerMode === 'edit_variant') &&
+              variantDraft && (
+                <form
+                  onSubmit={saveVariant}
+                  style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
+                >
+                  <div className="admin-drawer-body">
                     <div>
                       <label
                         style={{
@@ -2948,15 +2905,13 @@ export function AdminCatalogPage() {
                           marginBottom: '4px'
                         }}
                       >
-                        Phân khúc sử dụng *
+                        Thuộc dòng máy Laptop (Parent Model) *
                       </label>
                       <select
-                        value={variantDraft.usage_category}
+                        required
+                        value={variantDraft.laptop_id}
                         onChange={e =>
-                          setVariantDraft({
-                            ...variantDraft,
-                            usage_category: e.target.value as UsageCategory
-                          })
+                          setVariantDraft({ ...variantDraft, laptop_id: e.target.value })
                         }
                         style={{
                           width: '100%',
@@ -2967,357 +2922,430 @@ export function AdminCatalogPage() {
                           background: '#fff'
                         }}
                       >
-                        {usageCategories.map(cat => (
-                          <option key={cat} value={cat}>
-                            {USAGE_LABELS[cat]}
+                        <option value="">-- Chọn dòng máy Laptop --</option>
+                        {(meta?.laptop_options ?? []).map(opt => (
+                          <option key={opt.id} value={opt.id}>
+                            {opt.brand} — {opt.model_name} {!opt.is_active ? '(Lưu trữ)' : ''}
                           </option>
                         ))}
                       </select>
                     </div>
-                  </div>
 
-                  <div className="admin-grid-2col">
-                    <div>
-                      <label
-                        style={{
-                          display: 'block',
-                          fontSize: '12px',
-                          fontWeight: 700,
-                          marginBottom: '4px'
-                        }}
-                      >
-                        Vi xử lý (CPU) *
-                      </label>
-                      <input
-                        required
-                        placeholder="Intel Core Ultra 7 155H / Apple M3..."
-                        value={variantDraft.cpu}
-                        onChange={e => setVariantDraft({ ...variantDraft, cpu: e.target.value })}
-                        style={{
-                          width: '100%',
-                          padding: '8px 10px',
-                          border: '1.5px solid var(--ink-border)',
-                          borderRadius: '4px',
-                          fontSize: '13px'
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <label
-                        style={{
-                          display: 'block',
-                          fontSize: '12px',
-                          fontWeight: 700,
-                          marginBottom: '4px'
-                        }}
-                      >
-                        Card đồ họa (GPU) *
-                      </label>
-                      <input
-                        required
-                        placeholder="RTX 4060 8GB / Intel Arc Graphics..."
-                        value={variantDraft.gpu}
-                        onChange={e => setVariantDraft({ ...variantDraft, gpu: e.target.value })}
-                        style={{
-                          width: '100%',
-                          padding: '8px 10px',
-                          border: '1.5px solid var(--ink-border)',
-                          borderRadius: '4px',
-                          fontSize: '13px'
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="admin-grid-2col">
-                    <div>
-                      <label
-                        style={{
-                          display: 'block',
-                          fontSize: '12px',
-                          fontWeight: 700,
-                          marginBottom: '4px'
-                        }}
-                      >
-                        Dung lượng RAM (GB) *
-                      </label>
-                      <input
-                        type="number"
-                        required
-                        min={1}
-                        max={1024}
-                        value={variantDraft.ram_gb}
-                        onChange={e =>
-                          setVariantDraft({ ...variantDraft, ram_gb: Number(e.target.value) })
-                        }
-                        style={{
-                          width: '100%',
-                          padding: '8px 10px',
-                          border: '1.5px solid var(--ink-border)',
-                          borderRadius: '4px',
-                          fontFamily: 'var(--font-mono)',
-                          fontSize: '13px'
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <label
-                        style={{
-                          display: 'block',
-                          fontSize: '12px',
-                          fontWeight: 700,
-                          marginBottom: '4px'
-                        }}
-                      >
-                        Ổ cứng SSD (GB — 1024 = 1TB) *
-                      </label>
-                      <input
-                        type="number"
-                        required
-                        min={1}
-                        max={100000}
-                        value={variantDraft.ssd_gb}
-                        onChange={e =>
-                          setVariantDraft({ ...variantDraft, ssd_gb: Number(e.target.value) })
-                        }
-                        style={{
-                          width: '100%',
-                          padding: '8px 10px',
-                          border: '1.5px solid var(--ink-border)',
-                          borderRadius: '4px',
-                          fontFamily: 'var(--font-mono)',
-                          fontSize: '13px'
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="admin-grid-2col">
-                    <div>
-                      <label
-                        style={{
-                          display: 'block',
-                          fontSize: '12px',
-                          fontWeight: 700,
-                          marginBottom: '4px'
-                        }}
-                      >
-                        Thông số màn hình *
-                      </label>
-                      <input
-                        required
-                        placeholder="15.6 inch 2.5K 165Hz 100% DCI-P3"
-                        value={variantDraft.screen}
-                        onChange={e => setVariantDraft({ ...variantDraft, screen: e.target.value })}
-                        style={{
-                          width: '100%',
-                          padding: '8px 10px',
-                          border: '1.5px solid var(--ink-border)',
-                          borderRadius: '4px',
-                          fontSize: '13px'
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <label
-                        style={{
-                          display: 'block',
-                          fontSize: '12px',
-                          fontWeight: 700,
-                          marginBottom: '4px'
-                        }}
-                      >
-                        Màu sắc vỏ máy *
-                      </label>
-                      <input
-                        required
-                        placeholder="Xám Titan / Đen / Bạc..."
-                        value={variantDraft.color}
-                        onChange={e => setVariantDraft({ ...variantDraft, color: e.target.value })}
-                        style={{
-                          width: '100%',
-                          padding: '8px 10px',
-                          border: '1.5px solid var(--ink-border)',
-                          borderRadius: '4px',
-                          fontSize: '13px'
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  <div
-                    className="admin-grid-2col"
-                    style={{
-                      padding: '12px',
-                      background: 'var(--bg-surface-raised)',
-                      border: '1.5px solid var(--ink-border)',
-                      borderRadius: '6px'
-                    }}
-                  >
-                    <div>
-                      <label
-                        style={{
-                          display: 'block',
-                          fontSize: '12px',
-                          fontWeight: 700,
-                          marginBottom: '4px'
-                        }}
-                      >
-                        Giá niêm yết (VNĐ) *
-                      </label>
-                      <input
-                        type="number"
-                        required
-                        min={1000}
-                        max={1000000000}
-                        step={10000}
-                        value={variantDraft.price_vnd}
-                        onChange={e =>
-                          setVariantDraft({ ...variantDraft, price_vnd: Number(e.target.value) })
-                        }
-                        style={{
-                          width: '100%',
-                          padding: '8px 10px',
-                          border: '1.5px solid var(--ink-border)',
-                          borderRadius: '4px',
-                          fontFamily: 'var(--font-mono)',
-                          fontWeight: 700,
-                          fontSize: '14px',
-                          background: '#fff'
-                        }}
-                      />
-                      <div
-                        style={{
-                          fontSize: '11.5px',
-                          color: 'var(--accent-primary)',
-                          fontFamily: 'var(--font-mono)',
-                          fontWeight: 700,
-                          marginTop: '4px'
-                        }}
-                      >
-                        Hiển thị: {money(Number(variantDraft.price_vnd) || 0)}
+                    <div className="admin-grid-2col">
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            marginBottom: '4px'
+                          }}
+                        >
+                          Mã định danh SKU *
+                        </label>
+                        <input
+                          required
+                          placeholder="VD: ASUS-TUF-F15-I7-16-512"
+                          value={variantDraft.sku}
+                          onChange={e => setVariantDraft({ ...variantDraft, sku: e.target.value })}
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            border: '1.5px solid var(--ink-border)',
+                            borderRadius: '4px',
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: '13px'
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            marginBottom: '4px'
+                          }}
+                        >
+                          Phân khúc sử dụng *
+                        </label>
+                        <select
+                          value={variantDraft.usage_category}
+                          onChange={e =>
+                            setVariantDraft({
+                              ...variantDraft,
+                              usage_category: e.target.value as UsageCategory
+                            })
+                          }
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            border: '1.5px solid var(--ink-border)',
+                            borderRadius: '4px',
+                            fontSize: '13px',
+                            background: '#fff'
+                          }}
+                        >
+                          {usageCategories.map(cat => (
+                            <option key={cat} value={cat}>
+                              {USAGE_LABELS[cat]}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                     </div>
 
-                    <div>
+                    <div className="admin-grid-2col">
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            marginBottom: '4px'
+                          }}
+                        >
+                          Vi xử lý (CPU) *
+                        </label>
+                        <input
+                          required
+                          placeholder="Intel Core Ultra 7 155H / Apple M3..."
+                          value={variantDraft.cpu}
+                          onChange={e => setVariantDraft({ ...variantDraft, cpu: e.target.value })}
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            border: '1.5px solid var(--ink-border)',
+                            borderRadius: '4px',
+                            fontSize: '13px'
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            marginBottom: '4px'
+                          }}
+                        >
+                          Card đồ họa (GPU) *
+                        </label>
+                        <input
+                          required
+                          placeholder="RTX 4060 8GB / Intel Arc Graphics..."
+                          value={variantDraft.gpu}
+                          onChange={e => setVariantDraft({ ...variantDraft, gpu: e.target.value })}
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            border: '1.5px solid var(--ink-border)',
+                            borderRadius: '4px',
+                            fontSize: '13px'
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="admin-grid-2col">
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            marginBottom: '4px'
+                          }}
+                        >
+                          Dung lượng RAM (GB) *
+                        </label>
+                        <input
+                          type="number"
+                          required
+                          min={1}
+                          max={1024}
+                          value={variantDraft.ram_gb}
+                          onChange={e =>
+                            setVariantDraft({ ...variantDraft, ram_gb: Number(e.target.value) })
+                          }
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            border: '1.5px solid var(--ink-border)',
+                            borderRadius: '4px',
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: '13px'
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            marginBottom: '4px'
+                          }}
+                        >
+                          Ổ cứng SSD (GB — 1024 = 1TB) *
+                        </label>
+                        <input
+                          type="number"
+                          required
+                          min={1}
+                          max={100000}
+                          value={variantDraft.ssd_gb}
+                          onChange={e =>
+                            setVariantDraft({ ...variantDraft, ssd_gb: Number(e.target.value) })
+                          }
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            border: '1.5px solid var(--ink-border)',
+                            borderRadius: '4px',
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: '13px'
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="admin-grid-2col">
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            marginBottom: '4px'
+                          }}
+                        >
+                          Thông số màn hình *
+                        </label>
+                        <input
+                          required
+                          placeholder="15.6 inch 2.5K 165Hz 100% DCI-P3"
+                          value={variantDraft.screen}
+                          onChange={e =>
+                            setVariantDraft({ ...variantDraft, screen: e.target.value })
+                          }
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            border: '1.5px solid var(--ink-border)',
+                            borderRadius: '4px',
+                            fontSize: '13px'
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            marginBottom: '4px'
+                          }}
+                        >
+                          Màu sắc vỏ máy *
+                        </label>
+                        <input
+                          required
+                          placeholder="Xám Titan / Đen / Bạc..."
+                          value={variantDraft.color}
+                          onChange={e =>
+                            setVariantDraft({ ...variantDraft, color: e.target.value })
+                          }
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            border: '1.5px solid var(--ink-border)',
+                            borderRadius: '4px',
+                            fontSize: '13px'
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div
+                      className="admin-grid-2col"
+                      style={{
+                        padding: '12px',
+                        background: 'var(--bg-surface-raised)',
+                        border: '1.5px solid var(--ink-border)',
+                        borderRadius: '6px'
+                      }}
+                    >
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            marginBottom: '4px'
+                          }}
+                        >
+                          Giá niêm yết (VNĐ) *
+                        </label>
+                        <input
+                          type="number"
+                          required
+                          min={1000}
+                          max={1000000000}
+                          step={10000}
+                          value={variantDraft.price_vnd}
+                          onChange={e =>
+                            setVariantDraft({ ...variantDraft, price_vnd: Number(e.target.value) })
+                          }
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            border: '1.5px solid var(--ink-border)',
+                            borderRadius: '4px',
+                            fontFamily: 'var(--font-mono)',
+                            fontWeight: 700,
+                            fontSize: '14px',
+                            background: '#fff'
+                          }}
+                        />
+                        <div
+                          style={{
+                            fontSize: '11.5px',
+                            color: 'var(--accent-primary)',
+                            fontFamily: 'var(--font-mono)',
+                            fontWeight: 700,
+                            marginTop: '4px'
+                          }}
+                        >
+                          Hiển thị: {money(Number(variantDraft.price_vnd) || 0)}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            marginBottom: '4px'
+                          }}
+                        >
+                          Số lượng tồn kho vật lý *
+                        </label>
+                        <input
+                          type="number"
+                          required
+                          min={0}
+                          max={1000000}
+                          value={variantDraft.stock}
+                          onChange={e =>
+                            setVariantDraft({ ...variantDraft, stock: Number(e.target.value) })
+                          }
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            border: '1.5px solid var(--ink-border)',
+                            borderRadius: '4px',
+                            fontFamily: 'var(--font-mono)',
+                            fontWeight: 700,
+                            fontSize: '14px',
+                            background: '#fff'
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       <label
-                        style={{
-                          display: 'block',
-                          fontSize: '12px',
-                          fontWeight: 700,
-                          marginBottom: '4px'
-                        }}
+                        className="admin-checkbox-row"
+                        style={{ fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
                       >
-                        Số lượng tồn kho vật lý *
+                        <input
+                          type="checkbox"
+                          checked={variantDraft.stock_verified}
+                          onChange={e =>
+                            setVariantDraft({ ...variantDraft, stock_verified: e.target.checked })
+                          }
+                        />
+                        <span>
+                          Đã kiểm đếm xác thực tồn kho thực tế (cho phép chốt COD tự động)
+                        </span>
                       </label>
-                      <input
-                        type="number"
-                        required
-                        min={0}
-                        max={1000000}
-                        value={variantDraft.stock}
-                        onChange={e =>
-                          setVariantDraft({ ...variantDraft, stock: Number(e.target.value) })
-                        }
-                        style={{
-                          width: '100%',
-                          padding: '8px 10px',
-                          border: '1.5px solid var(--ink-border)',
-                          borderRadius: '4px',
-                          fontFamily: 'var(--font-mono)',
-                          fontWeight: 700,
-                          fontSize: '14px',
-                          background: '#fff'
-                        }}
-                      />
+
+                      <label
+                        className="admin-checkbox-row"
+                        style={{ fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={variantDraft.is_active}
+                          onChange={e =>
+                            setVariantDraft({ ...variantDraft, is_active: e.target.checked })
+                          }
+                        />
+                        <span>Mở bán mã SKU này trên Storefront</span>
+                      </label>
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <label
-                      className="admin-checkbox-row"
-                      style={{ fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={variantDraft.stock_verified}
-                        onChange={e =>
-                          setVariantDraft({ ...variantDraft, stock_verified: e.target.checked })
-                        }
-                      />
-                      <span>Đã kiểm đếm xác thực tồn kho thực tế (cho phép chốt COD tự động)</span>
-                    </label>
-
-                    <label
-                      className="admin-checkbox-row"
-                      style={{ fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={variantDraft.is_active}
-                        onChange={e =>
-                          setVariantDraft({ ...variantDraft, is_active: e.target.checked })
-                        }
-                      />
-                      <span>Mở bán mã SKU này trên Storefront</span>
-                    </label>
+                  <div className="admin-drawer-footer">
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      {selectedVariant && (
+                        <>
+                          <button
+                            type="button"
+                            className="retro-btn retro-btn-danger"
+                            onClick={() =>
+                              setDeleteTarget({ kind: 'variants', item: selectedVariant })
+                            }
+                          >
+                            <IconArchive size={14} />
+                            <span>Xóa / Lưu trữ</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="retro-btn"
+                            onClick={() => handleDuplicateVariant(selectedVariant)}
+                          >
+                            <IconCopy size={14} />
+                            <span>Nhân bản</span>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button type="button" className="retro-btn" onClick={requestCloseDrawer}>
+                        Đóng
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={busy}
+                        className={`retro-btn retro-btn-primary ${busy ? 'is-busy' : ''}`}
+                      >
+                        {busy ? <IconSpinner size={14} /> : <IconCheck size={14} />}
+                        <span>
+                          {busy
+                            ? 'Đang lưu...'
+                            : activeDrawerMode === 'create_variant'
+                              ? 'Tạo mã SKU'
+                              : 'Lưu cấu hình'}
+                        </span>
+                      </button>
+                    </div>
                   </div>
-                </div>
-
-                <div className="admin-drawer-footer">
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    {selectedVariant && (
-                      <>
-                        <button
-                          type="button"
-                          className="retro-btn retro-btn-danger"
-                          onClick={() =>
-                            setDeleteTarget({ kind: 'variants', item: selectedVariant })
-                          }
-                        >
-                          <IconArchive size={14} />
-                          <span>Xóa / Lưu trữ</span>
-                        </button>
-                        <button
-                          type="button"
-                          className="retro-btn"
-                          onClick={() => handleDuplicateVariant(selectedVariant)}
-                        >
-                          <IconCopy size={14} />
-                          <span>Nhân bản</span>
-                        </button>
-                      </>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button type="button" className="retro-btn" onClick={requestCloseDrawer}>
-                      Đóng
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={busy}
-                      className={`retro-btn retro-btn-primary ${busy ? 'is-busy' : ''}`}
-                    >
-                      {busy ? <IconSpinner size={14} /> : <IconCheck size={14} />}
-                      <span>
-                        {busy
-                          ? 'Đang lưu...'
-                          : drawerMode === 'create_variant'
-                            ? 'Tạo mã SKU'
-                            : 'Lưu cấu hình'}
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              </form>
-            )}
+                </form>
+              )}
           </aside>
         </div>
       )}
 
       {/* Unsaved Changes Guard Modal */}
-      {confirmDiscardOpen && (
-        <div className="admin-modal-backdrop" onClick={() => setConfirmDiscardOpen(false)}>
+      {discardModal.rendered && (
+        <div
+          className={`admin-modal-backdrop ${discardModal.stateClass}`}
+          onClick={() => setConfirmDiscardOpen(false)}
+        >
           <div
             className="admin-modal-box"
             style={{ maxWidth: '420px' }}
@@ -3363,9 +3391,9 @@ export function AdminCatalogPage() {
       )}
 
       {/* Multi-Image Gallery Modal */}
-      {showImageModal && galleryTargetLaptop && (
+      {activeGalleryLaptop && (
         <div
-          className="admin-modal-backdrop"
+          className={`admin-modal-backdrop ${galleryModal.stateClass}`}
           onClick={() => !gallerySaving && setShowImageModal(false)}
         >
           <div
@@ -3379,8 +3407,8 @@ export function AdminCatalogPage() {
             />
             <div className="retro-window-header">
               <span>
-                THƯ VIỆN ẢNH // {galleryTargetLaptop.brand.toUpperCase()}{' '}
-                {galleryTargetLaptop.model_name.toUpperCase()}
+                THƯ VIỆN ẢNH // {activeGalleryLaptop.brand.toUpperCase()}{' '}
+                {activeGalleryLaptop.model_name.toUpperCase()}
               </span>
               <button
                 type="button"
@@ -3610,8 +3638,11 @@ export function AdminCatalogPage() {
       )}
 
       {/* Safe Delete / Archive Confirmation Modal */}
-      {deleteTarget && (
-        <div className="admin-modal-backdrop" onClick={() => !deleting && setDeleteTarget(null)}>
+      {activeDeleteTarget && (
+        <div
+          className={`admin-modal-backdrop ${deleteModal.stateClass}`}
+          onClick={() => !deleting && setDeleteTarget(null)}
+        >
           <div
             className="admin-modal-box"
             style={{ maxWidth: '480px', position: 'relative' }}
@@ -3639,9 +3670,9 @@ export function AdminCatalogPage() {
               <p style={{ margin: 0, lineHeight: 1.55 }}>
                 Bạn đang yêu cầu xóa{' '}
                 <strong>
-                  {deleteTarget.kind === 'laptops'
-                    ? `${deleteTarget.item.brand} ${deleteTarget.item.model_name}`
-                    : `mã SKU ${deleteTarget.item.sku}`}
+                  {activeDeleteTarget.kind === 'laptops'
+                    ? `${activeDeleteTarget.item.brand} ${activeDeleteTarget.item.model_name}`
+                    : `mã SKU ${activeDeleteTarget.item.sku}`}
                 </strong>
                 .
               </p>

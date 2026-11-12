@@ -22,7 +22,13 @@ type History = {
   server_time: string;
 };
 
-export type StreamStage = 'idle' | 'thinking' | 'searching' | 'streaming';
+export type StreamStage =
+  | 'idle'
+  | 'thinking'
+  | 'searching'
+  | 'comparing'
+  | 'preparing_order'
+  | 'streaming';
 
 export type ChatState = {
   open: boolean;
@@ -347,8 +353,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             setStreaming('');
             setStreamWidgets([]);
           }
-          if (frame.event === 'status' && frame.data.stage === 'searching') {
-            setStreamStage(prev => (prev === 'streaming' ? prev : 'searching'));
+          if (
+            frame.event === 'status' &&
+            (frame.data.stage === 'searching' ||
+              frame.data.stage === 'comparing' ||
+              frame.data.stage === 'preparing_order')
+          ) {
+            const nextStage = frame.data.stage;
+            setStreamStage(prev => (prev === 'streaming' ? prev : nextStage));
           }
           if (frame.event === 'text_delta' && typeof frame.data.text === 'string') {
             setStreamStage('streaming');

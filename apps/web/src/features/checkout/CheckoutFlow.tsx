@@ -627,7 +627,7 @@ export function CheckoutFlow({
 
         {/* STEP 1: Recipient & Payment Method Form */}
         {showStep1Form && (
-          <form className="checkout-form" onSubmit={preview} noValidate>
+          <form className="checkout-form os-stage-enter" onSubmit={preview} noValidate>
             {isPending && order && editingStep1 && (
               <div className="checkout-editing-quote-bar">
                 <span>
@@ -932,7 +932,11 @@ export function CheckoutFlow({
               </div>
             )}
 
-            <div className="receipt-shell" aria-live="polite">
+            <div
+              key={isConfirmed ? 'confirmed-receipt' : 'pending-receipt'}
+              className="receipt-shell os-stage-enter"
+              aria-live="polite"
+            >
               <ReceiptPerforation position="top" />
               <div className={`receipt ${isConfirmed ? 'receipt-confirmed' : ''}`}>
                 <div className="receipt-head">
@@ -1055,7 +1059,7 @@ export function CheckoutFlow({
                 {isPending && (
                   <>
                     {activePaymentMethod === 'VIETQR' && (
-                      <div className="vietqr-payment-card">
+                      <div className="vietqr-payment-card os-stage-enter">
                         <div className="vietqr-card-header">
                           <IconQrCode size={20} />
                           <div>

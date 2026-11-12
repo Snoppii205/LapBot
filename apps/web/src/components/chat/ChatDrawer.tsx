@@ -16,6 +16,7 @@ import { cleanCpuLabel, cleanGpuLabel, formatLaptopTitle, money } from '../../li
 import { catalogImageUrl } from '../../lib/catalog-image.js';
 import { availabilityLabel, availabilityClass } from '../../lib/availability.js';
 import { apiJson } from '../../lib/api-client.js';
+import { useAnimatedPresence } from '../../lib/use-animated-presence.js';
 import { ChatMessageContent } from './ChatMessageContent.js';
 import {
   ChatThinkingBubble,
@@ -64,6 +65,19 @@ function formatSsd(ssdGb: number): string {
     return `${ssdGb / 1024}TB`;
   }
   return `${ssdGb}GB`;
+}
+
+function shortLaptopLabel(item: VariantSummary): string {
+  const full = formatLaptopTitle(item.brand, item.model_name).trim();
+  if (full.length <= 22) return full;
+  const words = full.split(/\s+/);
+  let acc = '';
+  for (const w of words) {
+    const next = acc ? `${acc} ${w}` : w;
+    if (next.length > 22) break;
+    acc = next;
+  }
+  return acc || `${full.slice(0, 20)}…`;
 }
 
 function AddressFormTicketCard({
@@ -353,8 +367,7 @@ export function ChatDrawer() {
   const chat = useChat();
   const cart = useCart();
   const navigate = useNavigate();
-  const [rendered, setRendered] = useState(chat.open);
-  const [closing, setClosing] = useState(false);
+  const { rendered, closing, stateClass } = useAnimatedPresence(chat.open, 180);
   const [draft, setDraft] = useState('');
   const [pinnedDetail, setPinnedDetail] = useState<VariantDetail | null>(null);
   const [loadingPinned, setLoadingPinned] = useState(false);
@@ -368,24 +381,10 @@ export function ChatDrawer() {
   const list = useRef<HTMLDivElement>(null);
   const dialog = useRef<HTMLElement>(null);
   const serverOffsetRef = useRef(0);
+  const userScrolledUpRef = useRef(false);
+  const lastMsgCountRef = useRef(0);
 
   const storeInfo = chat.store;
-
-  useEffect(() => {
-    if (chat.open) {
-      setRendered(true);
-      setClosing(false);
-      return;
-    }
-    if (rendered) {
-      setClosing(true);
-      const timer = setTimeout(() => {
-        setRendered(false);
-        setClosing(false);
-      }, 180);
-      return () => clearTimeout(timer);
-    }
-  }, [chat.open, rendered]);
 
   useEffect(() => {
     if (chat.session?.server_time) {
@@ -462,9 +461,11 @@ export function ChatDrawer() {
 
   useEffect(() => {
     if (!chat.open) return;
+    userScrolledUpRef.current = false;
     const timer = setTimeout(() => {
       if (list.current) {
         list.current.scrollTop = list.current.scrollHeight;
+        setShowScrollBottom(false);
       }
     }, 60);
     return () => clearTimeout(timer);
@@ -473,12 +474,22 @@ export function ChatDrawer() {
   useEffect(() => {
     const element = list.current;
     if (!element) return;
-    const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
-    if (distanceFromBottom < 320) {
+
+    const latestMsg = chat.messages.at(-1);
+    const hasNewUserMsg =
+      chat.messages.length !== lastMsgCountRef.current && latestMsg?.role === 'USER';
+    lastMsgCountRef.current = chat.messages.length;
+
+    if (hasNewUserMsg) {
+      userScrolledUpRef.current = false;
+    }
+
+    if (!userScrolledUpRef.current) {
       element.scrollTop = element.scrollHeight;
       setShowScrollBottom(false);
     } else {
-      setShowScrollBottom(true);
+      const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+      setShowScrollBottom(distanceFromBottom > 160);
     }
   }, [chat.messages, chat.streaming, chat.streamWidgets]);
 
@@ -486,11 +497,13 @@ export function ChatDrawer() {
     const element = list.current;
     if (!element) return;
     const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
-    setShowScrollBottom(distanceFromBottom > 180);
+    userScrolledUpRef.current = distanceFromBottom > 110;
+    setShowScrollBottom(distanceFromBottom > 160);
   }, []);
 
   const scrollToLatest = useCallback(() => {
     if (!list.current) return;
+    userScrolledUpRef.current = false;
     list.current.scrollTo({ top: list.current.scrollHeight, behavior: 'smooth' });
     setShowScrollBottom(false);
   }, []);
@@ -524,57 +537,125 @@ export function ChatDrawer() {
     return () => document.removeEventListener('keydown', keydown);
   }, [chat]);
 
-  const followUpPrompts = useMemo(() => {
-    const lastAssistant = [...chat.messages].reverse().find(m => m.role === 'ASSISTANT');
+  const followUpPrompts = useMemo((): Array<{
+    label: string;
+    prompt: string;
+    variantId?: string;
+  }> => {
+    const assistantTurns = chat.messages.filter(m => m.role === 'ASSISTANT');
+    const lastAssistant = assistantTurns.at(-1);
     if (!lastAssistant) return [];
     if (lastAssistant.widgets.some(w => w.widget_type === 'address_form')) {
       return [];
     }
-    const variantCount = lastAssistant.widgets.reduce((acc, w) => {
-      if (w.widget_type === 'laptop_spec' || w.widget_type === 'variant_customizer') {
-        return acc + w.payload.variants.length;
-      }
-      return acc;
-    }, 0);
-    if (variantCount >= 2) {
-      return [
+
+    const extractVariants = (widgets: ChatWidget[]): VariantSummary[] =>
+      widgets.flatMap(w =>
+        w.widget_type === 'laptop_spec' || w.widget_type === 'variant_customizer'
+          ? w.payload.variants
+          : []
+      );
+
+    const directVariants = extractVariants(lastAssistant.widgets);
+    if (directVariants.length >= 2) {
+      const topInStock = directVariants.find(v => v.in_stock);
+      const chips: Array<{ label: string; prompt: string; variantId?: string }> = [
         {
           label: 'So sánh bảng chi tiết',
-          prompt: 'Lập bảng so sánh chi tiết ưu nhược điểm giữa các mẫu máy trên giúp tôi'
-        },
-        {
+          prompt:
+            'Lập bảng so sánh chi tiết hiệu năng, màn hình, pin và tản nhiệt giữa các mẫu máy trên giúp tôi'
+        }
+      ];
+      if (topInStock) {
+        const fullTitle = formatLaptopTitle(topInStock.brand, topInStock.model_name);
+        chips.push({
+          label: `Chốt mua ${shortLaptopLabel(topInStock)}`,
+          prompt: `Tôi muốn đặt mua mẫu ${fullTitle} (${topInStock.sku})`,
+          variantId: topInStock.variant_id
+        });
+      } else {
+        chips.push({
           label: 'Pin & nâng cấp RAM/SSD',
           prompt: 'Các mẫu trên thời lượng pin và khả năng nâng cấp RAM/SSD thế nào?'
-        },
+        });
+      }
+      chips.push({
+        label: 'Mẫu khác giá mềm hơn',
+        prompt: 'Có mẫu nào đáp ứng nhu cầu tương đương nhưng mức giá tiết kiệm hơn không?'
+      });
+      return chips;
+    }
+
+    if (directVariants.length === 1) {
+      const only = directVariants[0]!;
+      const fullTitle = formatLaptopTitle(only.brand, only.model_name);
+      const chips: Array<{ label: string; prompt: string; variantId?: string }> = [
         {
-          label: 'Mẫu khác giá mềm hơn',
-          prompt: 'Có mẫu nào nhu cầu tương đương nhưng mức giá tiết kiệm hơn không?'
+          label: 'Ưu nhược điểm & nâng cấp',
+          prompt: `Phân tích kỹ ưu nhược điểm thực tế, tản nhiệt và khả năng nâng cấp của ${fullTitle} giúp tôi`,
+          variantId: only.variant_id
         }
       ];
-    }
-    if (variantCount === 1) {
-      return [
-        {
-          label: 'Ưu nhược điểm thực tế',
-          prompt: 'Phân tích kỹ ưu nhược điểm thực tế của mẫu máy này giúp tôi'
-        },
-        {
+      if (only.in_stock) {
+        chips.push({
+          label: `Chốt mua ${shortLaptopLabel(only)}`,
+          prompt: `Tôi muốn đặt mua mẫu ${fullTitle} (${only.sku})`,
+          variantId: only.variant_id
+        });
+      } else {
+        chips.push({
           label: 'Bảo hành & giao COD',
           prompt: 'Chính sách bảo hành, đổi trả và giao hàng COD đồng kiểm như thế nào?'
-        },
-        {
-          label: 'Tìm mẫu cùng tầm giá',
-          prompt: 'Gợi ý thêm các mẫu cùng tầm giá để tôi đối chiếu thêm'
-        }
-      ];
+        });
+      }
+      chips.push({
+        label: 'Tìm đối thủ cùng tầm giá',
+        prompt: 'Gợi ý thêm các mẫu đối thủ cùng tầm giá để tôi đối chiếu thêm'
+      });
+      return chips;
     }
+
+    // Post-comparison turn (no duplicate cards emitted, but recent turn recommended SKUs)
+    const prevWithCards = assistantTurns
+      .slice(-3, -1)
+      .reverse()
+      .find(m => extractVariants(m.widgets).length > 0);
+    if (prevWithCards && lastAssistant.content.includes('|')) {
+      const compared = extractVariants(prevWithCards.widgets);
+      const topInStock = compared.find(v => v.in_stock);
+      if (topInStock) {
+        const fullTitle = formatLaptopTitle(topInStock.brand, topInStock.model_name);
+        return [
+          {
+            label: `Chốt mua ${shortLaptopLabel(topInStock)}`,
+            prompt: `Tôi muốn đặt mua mẫu ${fullTitle} (${topInStock.sku})`,
+            variantId: topInStock.variant_id
+          },
+          {
+            label: 'Khả năng nâng cấp RAM/SSD',
+            prompt: 'Khả năng nâng cấp RAM và SSD thực tế của các mẫu vừa so sánh thế nào?'
+          },
+          {
+            label: 'Mẫu khác giá mềm hơn',
+            prompt: 'Có lựa chọn nào khác mức giá tiết kiệm hơn để tôi cân nhắc không?'
+          }
+        ];
+      }
+    }
+
     return [
       {
-        label: 'Văn phòng < 15 triệu',
-        prompt: 'Tư vấn giúp tôi laptop học tập và văn phòng bền bỉ dưới 15 triệu'
+        label: 'Văn phòng mỏng nhẹ < 15tr',
+        prompt: 'Tư vấn giúp tôi laptop học tập và văn phòng mỏng nhẹ bền bỉ dưới 15 triệu'
       },
-      { label: 'Lập trình RAM 16GB', prompt: 'Tìm laptop lập trình RAM từ 16GB dưới 25 triệu' },
-      { label: 'Gaming RTX 144Hz', prompt: 'Gợi ý laptop gaming có card RTX màn hình 144Hz' }
+      {
+        label: 'Lập trình RAM 16GB+ < 22tr',
+        prompt: 'Tìm laptop lập trình chạy Docker mượt RAM từ 16GB dưới 22 triệu'
+      },
+      {
+        label: 'Gaming / Đồ họa card rời',
+        prompt: 'Gợi ý laptop gaming hoặc đồ họa có card rời RTX tản nhiệt tốt'
+      }
     ];
   }, [chat.messages]);
 
@@ -609,6 +690,7 @@ export function ChatDrawer() {
     event.preventDefault();
     const value = draft.trim();
     if (!value || !canSend) return;
+    userScrolledUpRef.current = false;
     setDraft('');
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
@@ -676,9 +758,7 @@ export function ChatDrawer() {
   return (
     <aside
       ref={dialog}
-      className={`chat-drawer ${chat.drawerExpanded ? 'chat-drawer-expanded' : ''} ${
-        closing ? 'is-closing' : 'is-open'
-      }`}
+      className={`chat-drawer ${chat.drawerExpanded ? 'chat-drawer-expanded' : ''} ${stateClass}`}
       role="dialog"
       aria-modal="true"
       aria-hidden={closing || undefined}
@@ -1155,9 +1235,13 @@ export function ChatDrawer() {
                 />
                 <ChatThinkingBubble
                   label={
-                    chat.streamStage === 'searching'
-                      ? 'Đang tra cứu tồn kho & đối chiếu cấu hình…'
-                      : 'Đang phân tích nhu cầu của bạn…'
+                    chat.streamStage === 'preparing_order'
+                      ? 'Đang chuẩn bị phiếu đặt hàng bảo mật…'
+                      : chat.streamStage === 'comparing'
+                        ? 'Đang đối chiếu chi tiết phần cứng từng mẫu…'
+                        : chat.streamStage === 'searching'
+                          ? 'Đang rà soát kho & chọn cấu hình sát ngân sách…'
+                          : 'Đang phân tích nhu cầu của bạn…'
                   }
                   onStop={chat.stopStreaming}
                 />
@@ -1206,7 +1290,13 @@ export function ChatDrawer() {
                     key={idx}
                     type="button"
                     className="chat-followup-chip"
-                    onClick={() => void chat.send(item.prompt)}
+                    onClick={() => {
+                      userScrolledUpRef.current = false;
+                      if (item.variantId) {
+                        chat.setSelectedVariant(item.variantId);
+                      }
+                      void chat.send(item.prompt, item.variantId);
+                    }}
                   >
                     {item.label}
                   </button>

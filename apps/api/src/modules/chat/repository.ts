@@ -3,6 +3,7 @@ import type { ChatMessage, ChatWidget, ChatTurnStatus } from '@lapbot/contracts'
 import { pool } from '../../db/pool.js';
 import { AppError, conflict } from '../../lib/errors.js';
 import { closeGate } from './control-gate.js';
+import { sanitizeContextValue } from './guardrails.js';
 
 export type Receipt = {
   id: string;
@@ -259,6 +260,111 @@ export async function updateSalesContext(
   );
 }
 
+const KEYWORD_BRAND_HINTS: Record<string, string> = {
+  macbook: 'apple',
+  apple: 'apple',
+  thinkpad: 'lenovo',
+  ideapad: 'lenovo',
+  legion: 'lenovo',
+  loq: 'lenovo',
+  yoga: 'lenovo',
+  lenovo: 'lenovo',
+  rog: 'asus',
+  tuf: 'asus',
+  zenbook: 'asus',
+  vivobook: 'asus',
+  expertbook: 'asus',
+  asus: 'asus',
+  xps: 'dell',
+  latitude: 'dell',
+  inspiron: 'dell',
+  vostro: 'dell',
+  precision: 'dell',
+  alienware: 'dell',
+  dell: 'dell',
+  victus: 'hp',
+  omen: 'hp',
+  elitebook: 'hp',
+  probook: 'hp',
+  pavilion: 'hp',
+  envy: 'hp',
+  dragonfly: 'hp',
+  hp: 'hp',
+  nitro: 'acer',
+  aspire: 'acer',
+  swift: 'acer',
+  predator: 'acer',
+  acer: 'acer',
+  msi: 'msi',
+  gram: 'lg',
+  lg: 'lg',
+  surface: 'microsoft',
+  microsoft: 'microsoft'
+};
+
+export function computeMergedSalesFilter(
+  prevRaw: Record<string, unknown>,
+  nextArgs: Record<string, unknown>
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...prevRaw };
+
+  // Replace previous price bounds cleanly whenever new price criteria are given
+  if (nextArgs.min_price !== undefined || nextArgs.max_price !== undefined) {
+    delete merged.min_price;
+    delete merged.max_price;
+  }
+
+  // When customer switches primary usage category, drop stale conflicting constraints unless re-stated
+  if (
+    nextArgs.usage_category !== undefined &&
+    merged.usage_category !== undefined &&
+    nextArgs.usage_category !== merged.usage_category
+  ) {
+    if (nextArgs.preferred_brand === undefined) delete merged.preferred_brand;
+    if (nextArgs.keyword === undefined) delete merged.keyword;
+    if (nextArgs.min_ram_gb === undefined) delete merged.min_ram_gb;
+    if (nextArgs.min_ssd_gb === undefined) delete merged.min_ssd_gb;
+  }
+
+  // When customer switches preferred_brand, drop stale keyword unless re-stated
+  if (
+    typeof nextArgs.preferred_brand === 'string' &&
+    typeof merged.preferred_brand === 'string' &&
+    nextArgs.preferred_brand.trim().toLowerCase() !== merged.preferred_brand.trim().toLowerCase()
+  ) {
+    if (nextArgs.keyword === undefined) delete merged.keyword;
+  }
+
+  // When keyword implies a rival brand/series and preferred_brand wasn't passed, clear stale preferred_brand
+  if (
+    typeof nextArgs.keyword === 'string' &&
+    nextArgs.preferred_brand === undefined &&
+    typeof merged.preferred_brand === 'string'
+  ) {
+    const prevBrand = merged.preferred_brand.trim().toLowerCase();
+    const tokens = nextArgs.keyword
+      .toLowerCase()
+      .split(/[\s,;/]+/)
+      .filter(Boolean);
+    const impliedBrand = tokens.map(t => KEYWORD_BRAND_HINTS[t]).find(Boolean);
+    if (impliedBrand && impliedBrand !== prevBrand) {
+      delete merged.preferred_brand;
+    }
+  }
+
+  for (const [key, val] of Object.entries(nextArgs)) {
+    if (val === undefined) continue;
+    if (typeof val === 'string') {
+      const cleaned = sanitizeContextValue(val, 80);
+      if (cleaned) merged[key] = cleaned;
+    } else {
+      merged[key] = val;
+    }
+  }
+
+  return merged;
+}
+
 export async function mergeSalesFilter(
   sessionId: string,
   expectedVersion: number,
@@ -280,23 +386,16 @@ export async function mergeSalesFilter(
     const prevCtx = current.rows[0].sales_context ?? {};
     const prevFilter =
       prevCtx.filter && typeof prevCtx.filter === 'object' && !Array.isArray(prevCtx.filter)
-        ? { ...(prevCtx.filter as Record<string, unknown>) }
+        ? (prevCtx.filter as Record<string, unknown>)
         : {};
 
-    // If new search specifies any price bound, replace previous price bounds cleanly
-    if (nextArgs.min_price !== undefined || nextArgs.max_price !== undefined) {
-      delete prevFilter.min_price;
-      delete prevFilter.max_price;
-    }
-    for (const [key, val] of Object.entries(nextArgs)) {
-      if (val !== undefined) prevFilter[key] = val;
-    }
+    const nextFilter = computeMergedSalesFilter(prevFilter, nextArgs);
 
     await client.query(
       `UPDATE chat_sessions
        SET sales_context = COALESCE(sales_context, '{}'::jsonb) || $2::jsonb, updated_at = now()
        WHERE id = $1`,
-      [sessionId, JSON.stringify({ filter: prevFilter, last_search_at: new Date().toISOString() })]
+      [sessionId, JSON.stringify({ filter: nextFilter, last_search_at: new Date().toISOString() })]
     );
     await client.query('COMMIT');
   } catch {
@@ -306,24 +405,54 @@ export async function mergeSalesFilter(
   }
 }
 
-export async function recentMessages(
+export type ConversationContextResult = {
+  items: { role: string; content: string }[];
+  lastShownVariantIds: string[];
+  latestUserMessage: string;
+};
+
+export async function recentConversationContext(
   sessionId: string
-): Promise<{ role: string; content: string }[]> {
+): Promise<ConversationContextResult> {
   const result = await pool.query(
-    `SELECT role,content,widgets FROM chat_messages WHERE session_id=$1 AND role IN ('USER','ASSISTANT')
-    ORDER BY id DESC LIMIT 10`,
+    `SELECT role, content, widgets
+     FROM chat_messages
+     WHERE session_id = $1 AND role IN ('USER', 'ASSISTANT', 'AGENT')
+     ORDER BY id DESC
+     LIMIT 14`,
     [sessionId]
   );
-  return result.rows.reverse().map(row => {
+
+  const chronological = result.rows.reverse();
+  let lastShownVariantIds: string[] = [];
+  let latestUserMessage = '';
+
+  const items = chronological.map(row => {
+    const rawRole = String(row.role || 'USER');
     let content = String(row.content || '');
+    if (rawRole === 'USER') {
+      latestUserMessage = content;
+    }
+    if (rawRole === 'AGENT' && content.trim()) {
+      content = `[Nhân viên tư vấn LapBot đã hỗ trợ trực tiếp]: ${content.trim()}`;
+    }
+
     try {
-      if (row.role === 'ASSISTANT' && Array.isArray(row.widgets) && row.widgets.length > 0) {
+      if (
+        (rawRole === 'ASSISTANT' || rawRole === 'AGENT') &&
+        Array.isArray(row.widgets) &&
+        row.widgets.length > 0
+      ) {
         const summaries: string[] = [];
+        const variantIdsInTurn: string[] = [];
         for (const w of row.widgets) {
           if (!w || typeof w !== 'object') continue;
           if (w.widget_type === 'laptop_spec' && Array.isArray(w.payload?.variants)) {
             w.payload.variants.forEach((v: Record<string, unknown> | null, idx: number) => {
               if (!v || typeof v !== 'object') return;
+              if (typeof v.variant_id === 'string' && v.variant_id) {
+                variantIdsInTurn.push(v.variant_id);
+              }
               const price = Number(v.price_vnd);
               const priceStr = Number.isFinite(price)
                 ? `${price.toLocaleString('vi-VN')}đ`
@@ -335,12 +464,15 @@ export async function recentMessages(
                   ? modelStr
                   : [brandStr, modelStr].filter(Boolean).join(' ') || `Máy #${idx + 1}`;
               summaries.push(
-                `Máy #${idx + 1}: ${name} (variant_id="${v.variant_id ?? ''}", CPU: ${v.cpu ?? 'N/A'}, RAM: ${v.ram_gb ?? 'N/A'}GB, SSD: ${v.ssd_gb ?? 'N/A'}GB, Giá: ${priceStr}, Còn hàng: ${v.in_stock ? 'Có' : 'Hết'})`
+                `Máy #${idx + 1}: ${name} (variant_id="${v.variant_id ?? ''}", CPU: ${v.cpu ?? 'N/A'}, GPU: ${v.gpu ?? 'N/A'}, RAM: ${v.ram_gb ?? 'N/A'}GB, SSD: ${v.ssd_gb ?? 'N/A'}GB, Giá: ${priceStr}, Còn hàng: ${v.in_stock ? 'Có' : 'Hết'})`
               );
             });
           } else if (w.widget_type === 'variant_customizer' && Array.isArray(w.payload?.variants)) {
             w.payload.variants.forEach((v: Record<string, unknown> | null, idx: number) => {
               if (!v || typeof v !== 'object') return;
+              if (typeof v.variant_id === 'string' && v.variant_id) {
+                variantIdsInTurn.push(v.variant_id);
+              }
               const price = Number(v.price_vnd);
               const priceStr = Number.isFinite(price)
                 ? `${price.toLocaleString('vi-VN')}đ`
@@ -351,15 +483,27 @@ export async function recentMessages(
             });
           }
         }
+        if (variantIdsInTurn.length > 0) {
+          lastShownVariantIds = variantIdsInTurn;
+        }
         if (summaries.length > 0) {
           content = `${content}\n[Thẻ cấu hình đã hiển thị:\n${summaries.join('\n')}]`.trim();
         }
       }
     } catch {
-      // In case of any malformed widget payload in legacy messages, preserve text content without crashing
+      // Preserve text content safely if legacy widget JSON is malformed
     }
-    return { role: row.role, content };
+    return { role: rawRole, content };
   });
+
+  return { items, lastShownVariantIds, latestUserMessage };
+}
+
+export async function recentMessages(
+  sessionId: string
+): Promise<{ role: string; content: string }[]> {
+  const ctx = await recentConversationContext(sessionId);
+  return ctx.items;
 }
 export async function history(
   sessionId: string,

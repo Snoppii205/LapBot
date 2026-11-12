@@ -67,6 +67,10 @@
   --radius-btn: 6px;
   --radius-xs: 4px;
   --radius-pill: 999px;
+  --speed-instant: 90ms;
   --speed-fast: 120ms;
+  --speed-base: 170ms;
+  --speed-drawer: 210ms;
   --ease-spring: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-os-out: cubic-bezier(0.22, 1, 0.36, 1);
 }

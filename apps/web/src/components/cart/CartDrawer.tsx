@@ -4,6 +4,7 @@ import { useCart } from '../../features/cart/CartContext.js';
 import { availabilityClass, availabilityLabel } from '../../lib/availability.js';
 import { catalogImageUrl } from '../../lib/catalog-image.js';
 import { formatLaptopTitle, money } from '../../lib/format.js';
+import { useAnimatedPresence, usePresenceValue } from '../../lib/use-animated-presence.js';
 import {
   IconArrowRight,
   IconCheck,
@@ -34,6 +35,10 @@ export function CartDrawer() {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [cart]);
 
+  const toastPresence = usePresenceValue(!cart.open ? cart.toast : null, 155);
+  const drawerPresence = useAnimatedPresence(cart.open, 175);
+  const activeToast = toastPresence.activeValue;
+
   const selectableItems = cart.items.filter(item => item.in_stock && !item.unavailable);
   const allSelected = selectableItems.length > 0 && selectableItems.every(item => item.selected);
 
@@ -50,16 +55,20 @@ export function CartDrawer() {
 
   return (
     <>
-      {cart.toast && !cart.open && (
-        <div className="cart-toast-banner" role="status" aria-live="polite">
+      {activeToast && (
+        <div
+          className={`cart-toast-banner ${toastPresence.stateClass}`}
+          role="status"
+          aria-live="polite"
+        >
           <span className="cart-toast-icon">
             <IconCheck size={14} />
           </span>
           <div className="cart-toast-copy">
             <strong>
-              {cart.toast.alreadyInCart ? 'Máy đã có sẵn trong giỏ' : 'Đã thêm vào giỏ hàng'}
+              {activeToast.alreadyInCart ? 'Máy đã có sẵn trong giỏ' : 'Đã thêm vào giỏ hàng'}
             </strong>
-            <span>{cart.toast.title}</span>
+            <span>{activeToast.title}</span>
           </div>
           <button type="button" className="cart-toast-open-btn" onClick={() => cart.openCart()}>
             <span>Mở giỏ ({cart.count})</span>
@@ -75,13 +84,18 @@ export function CartDrawer() {
         </div>
       )}
 
-      {cart.open && (
+      {drawerPresence.rendered && (
         <>
-          <div className="cart-backdrop" onClick={cart.closeCart} aria-hidden="true" />
+          <div
+            className={`cart-backdrop ${drawerPresence.stateClass}`}
+            onClick={cart.closeCart}
+            aria-hidden="true"
+          />
           <aside
-            className="cart-drawer"
+            className={`cart-drawer ${drawerPresence.stateClass}`}
             role="dialog"
             aria-modal="true"
+            aria-hidden={drawerPresence.closing || undefined}
             aria-label="Giỏ hàng LapBot"
           >
             <header className="cart-drawer-head">

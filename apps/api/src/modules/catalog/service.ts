@@ -379,17 +379,122 @@ export type AiCatalogSearchFilter = {
   limit?: number;
 };
 
-function tokenizeKeyword(raw?: string): string[] {
-  if (!raw) return [];
-  return raw
-    .trim()
-    .split(/[\s,;/]+/)
-    .map(token => token.trim())
-    .filter(token => token.length >= 2 && !KEYWORD_STOPWORDS.has(token.toLowerCase()))
-    .slice(0, 5);
+export type NormalizedAiSearchPlan = {
+  normalizedBrand?: string;
+  minRamGb?: number;
+  minSsdGb?: number;
+  requireDiscreteGpu: boolean;
+  tokens: string[];
+};
+
+export function normalizeAiSearchFilter(filter: AiCatalogSearchFilter): NormalizedAiSearchPlan {
+  let normalizedBrand: string | undefined;
+  const extraTokens: string[] = [];
+
+  if (filter.preferred_brand) {
+    const rawBrand = filter.preferred_brand.trim();
+    const alias = BRAND_SERIES_ALIASES[rawBrand.toLowerCase()];
+    if (alias) {
+      normalizedBrand = alias.brand;
+      if (alias.seriesToken) extraTokens.push(alias.seriesToken);
+    } else if (rawBrand) {
+      normalizedBrand = rawBrand;
+    }
+  }
+
+  let workingKeyword = (filter.keyword ?? '').normalize('NFC').trim();
+  let requireDiscreteGpu = false;
+  let minRamGb = filter.min_ram_gb;
+  let minSsdGb = filter.min_ssd_gb;
+
+  if (workingKeyword) {
+    if (/(?<![\p{L}\p{N}_])(?:card|vga|gpu)\s*rời(?![\p{L}\p{N}_])/iu.test(workingKeyword)) {
+      requireDiscreteGpu = true;
+      workingKeyword = workingKeyword.replace(
+        /(?<![\p{L}\p{N}_])(?:card|vga|gpu)\s*rời(?![\p{L}\p{N}_])/giu,
+        ' '
+      );
+    }
+
+    // Extract SSD capacities like 256GB / 512GB / 1TB / 2TB from keyword into numeric min_ssd_gb
+    workingKeyword = workingKeyword.replace(
+      /(?<![\p{L}\p{N}_])(?:ssd\s*)?(256|512|1024)\s*gb(?![\p{L}\p{N}_])/giu,
+      (_, rawNum: string) => {
+        const gb = Number(rawNum);
+        if (minSsdGb === undefined) minSsdGb = gb;
+        return ' ';
+      }
+    );
+    workingKeyword = workingKeyword.replace(
+      /(?<![\p{L}\p{N}_])(?:ssd\s*)?([124])\s*tb(?![\p{L}\p{N}_])/giu,
+      (_, rawTb: string) => {
+        const gb = Number(rawTb) * 1024;
+        if (minSsdGb === undefined) minSsdGb = gb;
+        return ' ';
+      }
+    );
+
+    // Extract RAM capacities like 8GB / 16GB / 24GB / 32GB / 64GB from keyword into numeric min_ram_gb
+    workingKeyword = workingKeyword.replace(
+      /(?<![\p{L}\p{N}_])(?:ram\s*)?(8|16|24|32|48|64)\s*gb(?:\s*ram)?(?![\p{L}\p{N}_])/giu,
+      (_, rawRam: string) => {
+        const gb = Number(rawRam);
+        if (minRamGb === undefined) minRamGb = gb;
+        return ' ';
+      }
+    );
+  }
+
+  const rawTokens = workingKeyword
+    ? workingKeyword
+        .split(/[\s,;/]+/)
+        .map(token => token.trim())
+        .filter(
+          token =>
+            token.length >= 2 &&
+            !KEYWORD_STOPWORDS.has(token.toLowerCase()) &&
+            !/^(?:ram|ssd)$/i.test(token)
+        )
+    : [];
+
+  const resolvedTokens: string[] = [...extraTokens];
+  for (const token of rawTokens) {
+    const alias = BRAND_SERIES_ALIASES[token.toLowerCase()];
+    if (alias) {
+      if (!normalizedBrand) normalizedBrand = alias.brand;
+      if (alias.seriesToken) {
+        resolvedTokens.push(alias.seriesToken);
+      }
+      continue;
+    }
+    resolvedTokens.push(token);
+  }
+
+  const dedupedTokens: string[] = [];
+  const seenLower = new Set<string>();
+  for (const tok of resolvedTokens) {
+    const lower = tok.toLowerCase();
+    if (!seenLower.has(lower)) {
+      seenLower.add(lower);
+      dedupedTokens.push(tok);
+      if (dedupedTokens.length === 5) break;
+    }
+  }
+
+  return {
+    normalizedBrand,
+    minRamGb,
+    minSsdGb,
+    requireDiscreteGpu,
+    tokens: dedupedTokens
+  };
 }
 
-function scoreVariantForAi(item: VariantSummary, filter: AiCatalogSearchFilter): number {
+function scoreVariantForAi(
+  item: VariantSummary,
+  filter: AiCatalogSearchFilter,
+  tokens: string[] = []
+): number {
   let score = 0;
 
   // 1. Availability always dominates so ready-to-buy stock comes first
@@ -447,13 +552,25 @@ function scoreVariantForAi(item: VariantSummary, filter: AiCatalogSearchFilter):
     score += 95;
   }
 
+  // 5. Exact keyword token match bonus across model, CPU, GPU, and screen
+  if (tokens.length > 0) {
+    const searchable =
+      `${item.brand} ${item.model_name} ${item.cpu} ${item.gpu ?? ''} ${item.screen ?? ''}`.toLowerCase();
+    for (const token of tokens) {
+      if (searchable.includes(token.toLowerCase())) {
+        score += 55;
+      }
+    }
+  }
+
   return score;
 }
 
 function rankAndDiversify(
   items: VariantSummary[],
   filter: AiCatalogSearchFilter,
-  limit: number
+  limit: number,
+  tokens: string[] = []
 ): VariantSummary[] {
   const sortMode = filter.sort_by ?? 'best_match';
   const sorted = [...items].sort((a, b) => {
@@ -466,7 +583,7 @@ function rankAndDiversify(
     if (sortMode === 'price_desc')
       return b.price_vnd - a.price_vnd || a.variant_id.localeCompare(b.variant_id);
 
-    const diff = scoreVariantForAi(b, filter) - scoreVariantForAi(a, filter);
+    const diff = scoreVariantForAi(b, filter, tokens) - scoreVariantForAi(a, filter, tokens);
     return diff !== 0 ? diff : b.price_vnd - a.price_vnd;
   });
 
@@ -496,21 +613,8 @@ export async function searchVariantsForAi(
 ): Promise<VariantSummary[]> {
   const limit = filter.limit && filter.limit > 0 ? Math.min(filter.limit, 10) : 3;
   const candidatePoolSize = Math.max(limit * 8, 24);
-
-  let normalizedBrand: string | undefined;
-  const extraTokens: string[] = [];
-  if (filter.preferred_brand) {
-    const rawBrand = filter.preferred_brand.trim();
-    const alias = BRAND_SERIES_ALIASES[rawBrand.toLowerCase()];
-    if (alias) {
-      normalizedBrand = alias.brand;
-      if (alias.seriesToken) extraTokens.push(alias.seriesToken);
-    } else {
-      normalizedBrand = rawBrand;
-    }
-  }
-
-  const tokens = [...new Set([...extraTokens, ...tokenizeKeyword(filter.keyword)])];
+  const plan = normalizeAiSearchFilter(filter);
+  const { normalizedBrand, minRamGb, minSsdGb, requireDiscreteGpu, tokens } = plan;
 
   const buildQuery = (opts: {
     usageOverride?: UsageCategory | UsageCategory[];
@@ -529,10 +633,15 @@ export async function searchVariantsForAi(
 
     if (filter.min_price !== undefined) add(filter.min_price, n => `v.price_vnd >= $${n}`);
     if (filter.max_price !== undefined) add(filter.max_price, n => `v.price_vnd <= $${n}`);
-    if (filter.min_ram_gb !== undefined) add(filter.min_ram_gb, n => `v.ram_gb >= $${n}`);
-    if (filter.min_ssd_gb !== undefined) add(filter.min_ssd_gb, n => `v.ssd_gb >= $${n}`);
+    if (minRamGb !== undefined) add(minRamGb, n => `v.ram_gb >= $${n}`);
+    if (minSsdGb !== undefined) add(minSsdGb, n => `v.ssd_gb >= $${n}`);
     if (normalizedBrand) {
       add(normalizedBrand, n => `LOWER(l.brand) = LOWER($${n})`);
+    }
+    if (requireDiscreteGpu) {
+      clauses.push(
+        `(COALESCE(v.gpu, '') ~* '(RTX|GTX|Quadro|Radeon\\s+RX|RX\\s*\\d{3,4}|Arc\\s+A\\d)' OR l.model_name ~* '(RTX|GTX|Quadro)')`
+      );
     }
 
     if (opts.usageOverride) {
@@ -593,7 +702,11 @@ export async function searchVariantsForAi(
     rows = looseRes.rows.map(asSummary);
   }
 
-  if (rows.length === 0 && filter.usage_category && (normalizedBrand || tokens.length > 0)) {
+  if (
+    rows.length === 0 &&
+    filter.usage_category &&
+    (normalizedBrand || tokens.length > 0 || requireDiscreteGpu)
+  ) {
     const brandWideQuery = buildQuery({
       usageOverride: undefined,
       matchAnyToken: tokens.length > 1
@@ -602,5 +715,5 @@ export async function searchVariantsForAi(
     rows = brandWideRes.rows.map(asSummary);
   }
 
-  return rankAndDiversify(rows, filter, limit);
+  return rankAndDiversify(rows, filter, limit, tokens);
 }

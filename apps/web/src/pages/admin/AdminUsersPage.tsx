@@ -20,6 +20,7 @@ import {
 import { apiJson } from '../../lib/api-client.js';
 import { downloadCsv } from '../../lib/csv.js';
 import { money } from '../../lib/format.js';
+import { useAnimatedPresence, usePresenceValue } from '../../lib/use-animated-presence.js';
 import {
   AdminDetailPaneSkeleton,
   AdminKpiGridSkeleton,
@@ -215,6 +216,26 @@ export function AdminUsersPage() {
   const [confirmOwnPw, setConfirmOwnPw] = useState('');
   const [showOwnPwText, setShowOwnPwText] = useState(false);
   const [savingOwnPw, setSavingOwnPw] = useState(false);
+
+  // Presence lifecycle states for drawers & modals
+  const customerDrawerPresence = useAnimatedPresence(
+    Boolean(selectedCustomer || openingCustomerId),
+    175
+  );
+  const retainedCustomerPresence = usePresenceValue(selectedCustomer, 175);
+  const displayCustomer = selectedCustomer ?? retainedCustomerPresence.activeValue;
+
+  const createMemberModal = useAnimatedPresence(showCreateMemberModal, 150);
+  const promoteModal = usePresenceValue(promoteTarget, 150);
+  const activePromoteTarget = promoteModal.activeValue;
+  const resetPwModal = usePresenceValue(resetPwTarget, 150);
+  const activeResetPwTarget = resetPwModal.activeValue;
+  const toggleCustomerModal = usePresenceValue(confirmToggleCustomer, 150);
+  const activeToggleCustomer = toggleCustomerModal.activeValue;
+  const ownPwModal = useAnimatedPresence(showOwnPwModal, 150);
+  const addStaffModal = useAnimatedPresence(showAddStaffModal, 150);
+  const editStaffModal = usePresenceValue(editingStaff, 150);
+  const activeEditingStaff = editStaffModal.activeValue;
 
   useEffect(() => {
     void apiJson<AdminProfile>('/admin/me')
@@ -1952,9 +1973,9 @@ export function AdminUsersPage() {
       {/* =====================================================================
           CUSTOMER 360° SLIDE-OVER DRAWER
          ===================================================================== */}
-      {(selectedCustomer || openingCustomerId) && (
+      {customerDrawerPresence.rendered && (
         <div
-          className="admin-drawer-backdrop"
+          className={`admin-drawer-backdrop ${customerDrawerPresence.stateClass}`}
           onClick={() => {
             setSelectedCustomer(null);
             setOpeningCustomerId(null);
@@ -1964,6 +1985,7 @@ export function AdminUsersPage() {
             className="admin-drawer"
             style={{ position: 'relative' }}
             onClick={e => e.stopPropagation()}
+            aria-hidden={customerDrawerPresence.closing || undefined}
             aria-label="Hồ sơ khách hàng 360 độ"
           >
             <RetroTopProgress
@@ -1974,8 +1996,8 @@ export function AdminUsersPage() {
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                 <IconUsers size={15} />
                 <span>
-                  {selectedCustomer
-                    ? `CUSTOMER_360 // ${selectedCustomer.full_name.toUpperCase()}`
+                  {displayCustomer
+                    ? `CUSTOMER_360 // ${displayCustomer.full_name.toUpperCase()}`
                     : 'CUSTOMER_360 // ĐANG TẢI HỒ SƠ...'}
                 </span>
               </span>
@@ -1992,7 +2014,7 @@ export function AdminUsersPage() {
               </button>
             </div>
 
-            {!selectedCustomer ? (
+            {!displayCustomer ? (
               <div className="admin-drawer-body">
                 <AdminDetailPaneSkeleton variant="drawer" />
               </div>
@@ -2029,7 +2051,7 @@ export function AdminUsersPage() {
                           color: 'var(--accent-primary)'
                         }}
                       >
-                        {money(selectedCustomer.total_spent_vnd)}
+                        {money(displayCustomer.total_spent_vnd)}
                       </div>
                     </div>
                     <div>
@@ -2049,8 +2071,8 @@ export function AdminUsersPage() {
                           fontSize: '14px'
                         }}
                       >
-                        {selectedCustomer.delivered_orders_count ?? 0} giao ·{' '}
-                        {selectedCustomer.cancelled_orders_count ?? 0} hủy
+                        {displayCustomer.delivered_orders_count ?? 0} giao ·{' '}
+                        {displayCustomer.cancelled_orders_count ?? 0} hủy
                       </div>
                     </div>
                     <div>
@@ -2065,16 +2087,16 @@ export function AdminUsersPage() {
                       </span>
                       <div>
                         <span
-                          className={`admin-badge ${selectedCustomer.is_active ? 'status-success' : 'status-danger'}`}
+                          className={`admin-badge ${displayCustomer.is_active ? 'status-success' : 'status-danger'}`}
                         >
-                          {selectedCustomer.is_active ? 'HOẠT ĐỘNG' : 'ĐÃ KHÓA'}
+                          {displayCustomer.is_active ? 'HOẠT ĐỘNG' : 'ĐÃ KHÓA'}
                         </span>
                       </div>
                     </div>
                   </div>
 
                   {/* Unlinked Guest Orders Alert Banner */}
-                  {(selectedCustomer.unlinked_phone_orders_count ?? 0) > 0 && (
+                  {(displayCustomer.unlinked_phone_orders_count ?? 0) > 0 && (
                     <div
                       style={{
                         display: 'flex',
@@ -2091,8 +2113,8 @@ export function AdminUsersPage() {
                     >
                       <span>
                         Phát hiện{' '}
-                        <strong>{selectedCustomer.unlinked_phone_orders_count} đơn vãng lai</strong>{' '}
-                        trùng SĐT <strong>{selectedCustomer.phone}</strong> chưa được gộp vào tài
+                        <strong>{displayCustomer.unlinked_phone_orders_count} đơn vãng lai</strong>{' '}
+                        trùng SĐT <strong>{displayCustomer.phone}</strong> chưa được gộp vào tài
                         khoản này.
                       </span>
                       <button
@@ -2129,7 +2151,7 @@ export function AdminUsersPage() {
                       onClick={() => setDrawerTab('orders')}
                     >
                       <IconPackage size={13} />
-                      <span>Đơn hàng ({selectedCustomer.orders.length})</span>
+                      <span>Đơn hàng ({displayCustomer.orders.length})</span>
                     </button>
                     <button
                       type="button"
@@ -2137,7 +2159,7 @@ export function AdminUsersPage() {
                       onClick={() => setDrawerTab('chats')}
                     >
                       <IconMessageSquare size={13} />
-                      <span>Phiên Chat ({selectedCustomer.chat_sessions?.length ?? 0})</span>
+                      <span>Phiên Chat ({displayCustomer.chat_sessions?.length ?? 0})</span>
                     </button>
                   </div>
 
@@ -2335,12 +2357,12 @@ export function AdminUsersPage() {
                   {/* Drawer Sub-tab 2: Orders History */}
                   {drawerTab === 'orders' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {selectedCustomer.orders.length === 0 ? (
+                      {displayCustomer.orders.length === 0 ? (
                         <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>
                           Khách hàng chưa có đơn đặt mua nào được gắn với tài khoản.
                         </p>
                       ) : (
-                        selectedCustomer.orders.map(o => (
+                        displayCustomer.orders.map(o => (
                           <Link
                             key={o.order_id}
                             to={`/admin/orders?q=${encodeURIComponent(o.order_code)}`}
@@ -2410,13 +2432,13 @@ export function AdminUsersPage() {
                   {/* Drawer Sub-tab 3: Linked Chat Sessions */}
                   {drawerTab === 'chats' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {!selectedCustomer.chat_sessions ||
-                      selectedCustomer.chat_sessions.length === 0 ? (
+                      {!displayCustomer.chat_sessions ||
+                      displayCustomer.chat_sessions.length === 0 ? (
                         <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>
                           Chưa ghi nhận phiên trò chuyện Live Chat nào gắn với tài khoản này.
                         </p>
                       ) : (
-                        selectedCustomer.chat_sessions.map(s => (
+                        displayCustomer.chat_sessions.map(s => (
                           <Link
                             key={s.session_id}
                             to={`/admin/chat?q=${encodeURIComponent(s.session_id.slice(0, 8))}`}
@@ -2464,7 +2486,7 @@ export function AdminUsersPage() {
                       onClick={() => {
                         setResetPwValue(generateTempPassword(10));
                         setShowResetPw(true);
-                        setResetPwTarget(selectedCustomer);
+                        setResetPwTarget(displayCustomer);
                       }}
                     >
                       <IconKey size={13} />
@@ -2472,15 +2494,15 @@ export function AdminUsersPage() {
                     </button>
                     <button
                       type="button"
-                      className={`retro-btn retro-btn-sm ${selectedCustomer.is_active ? 'retro-btn-danger' : 'retro-btn-success'}`}
-                      onClick={() => setConfirmToggleCustomer(selectedCustomer)}
+                      className={`retro-btn retro-btn-sm ${displayCustomer.is_active ? 'retro-btn-danger' : 'retro-btn-success'}`}
+                      onClick={() => setConfirmToggleCustomer(displayCustomer)}
                     >
-                      {selectedCustomer.is_active ? (
+                      {displayCustomer.is_active ? (
                         <IconLock size={13} />
                       ) : (
                         <IconUnlock size={13} />
                       )}
-                      <span>{selectedCustomer.is_active ? 'Khóa tài khoản' : 'Mở khóa'}</span>
+                      <span>{displayCustomer.is_active ? 'Khóa tài khoản' : 'Mở khóa'}</span>
                     </button>
                   </div>
 
@@ -2517,9 +2539,9 @@ export function AdminUsersPage() {
       {/* =====================================================================
           MODAL: CREATE NEW MEMBER CUSTOMER
          ===================================================================== */}
-      {showCreateMemberModal && (
+      {createMemberModal.rendered && (
         <div
-          className="admin-modal-backdrop"
+          className={`admin-modal-backdrop ${createMemberModal.stateClass}`}
           onClick={() => !creatingMember && setShowCreateMemberModal(false)}
         >
           <div
@@ -2838,9 +2860,9 @@ export function AdminUsersPage() {
       {/* =====================================================================
           MODAL: PROMOTE GUEST BUYER TO MEMBER
          ===================================================================== */}
-      {promoteTarget && (
+      {activePromoteTarget && (
         <div
-          className="admin-modal-backdrop"
+          className={`admin-modal-backdrop ${promoteModal.stateClass}`}
           onClick={() => !promotingGuest && setPromoteTarget(null)}
         >
           <div
@@ -2849,7 +2871,7 @@ export function AdminUsersPage() {
             onClick={e => e.stopPropagation()}
           >
             <div className="retro-window-header">
-              <span>NÂNG CẤP KHÁCH VÃNG LAI ({promoteTarget.phone}) LÊN THÀNH VIÊN</span>
+              <span>NÂNG CẤP KHÁCH VÃNG LAI ({activePromoteTarget.phone}) LÊN THÀNH VIÊN</span>
               <button
                 type="button"
                 disabled={promotingGuest}
@@ -2874,8 +2896,9 @@ export function AdminUsersPage() {
                   fontSize: '12px'
                 }}
               >
-                Toàn bộ <strong>{promoteTarget.orders_count} đơn hàng COD vãng lai</strong> của SĐT{' '}
-                <strong>{promoteTarget.phone}</strong> sẽ được gộp tự động vào hồ sơ thành viên mới.
+                Toàn bộ <strong>{activePromoteTarget.orders_count} đơn hàng COD vãng lai</strong>{' '}
+                của SĐT <strong>{activePromoteTarget.phone}</strong> sẽ được gộp tự động vào hồ sơ
+                thành viên mới.
               </div>
 
               <div className="admin-grid-2col">
@@ -3084,9 +3107,9 @@ export function AdminUsersPage() {
       {/* =====================================================================
           MODAL: RESET CUSTOMER PASSWORD
          ===================================================================== */}
-      {resetPwTarget && (
+      {activeResetPwTarget && (
         <div
-          className="admin-modal-backdrop"
+          className={`admin-modal-backdrop ${resetPwModal.stateClass}`}
           onClick={() => !resettingPw && setResetPwTarget(null)}
         >
           <div
@@ -3110,8 +3133,8 @@ export function AdminUsersPage() {
               style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13px' }}
             >
               <p style={{ margin: 0 }}>
-                Đặt lại mật khẩu mới cho tài khoản <strong>{resetPwTarget.email}</strong>. Toàn bộ
-                phiên đăng nhập cũ của khách hàng sẽ tự động đăng xuất để bảo mật.
+                Đặt lại mật khẩu mới cho tài khoản <strong>{activeResetPwTarget.email}</strong>.
+                Toàn bộ phiên đăng nhập cũ của khách hàng sẽ tự động đăng xuất để bảo mật.
               </p>
               <div style={{ display: 'flex', gap: '6px' }}>
                 <div
@@ -3178,9 +3201,9 @@ export function AdminUsersPage() {
       {/* =====================================================================
           MODAL: CONFIRM LOCK / UNLOCK CUSTOMER
          ===================================================================== */}
-      {confirmToggleCustomer && (
+      {activeToggleCustomer && (
         <div
-          className="admin-modal-backdrop"
+          className={`admin-modal-backdrop ${toggleCustomerModal.stateClass}`}
           onClick={() => !toggleCustomerBusy && setConfirmToggleCustomer(null)}
         >
           <div
@@ -3192,7 +3215,7 @@ export function AdminUsersPage() {
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                 <IconAlertTriangle size={15} />
                 <span>
-                  XÁC NHẬN {confirmToggleCustomer.is_active ? 'KHÓA' : 'MỞ KHÓA'} TÀI KHOẢN
+                  XÁC NHẬN {activeToggleCustomer.is_active ? 'KHÓA' : 'MỞ KHÓA'} TÀI KHOẢN
                 </span>
               </span>
               <button
@@ -3209,16 +3232,16 @@ export function AdminUsersPage() {
               style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontSize: '13px' }}
             >
               <p style={{ margin: 0, lineHeight: 1.5 }}>
-                {confirmToggleCustomer.is_active ? (
+                {activeToggleCustomer.is_active ? (
                   <>
                     Bạn có chắc chắn muốn <strong>KHÓA</strong> tài khoản thành viên{' '}
-                    <strong>{confirmToggleCustomer.email}</strong>? Mọi phiên đăng nhập hiện tại của
+                    <strong>{activeToggleCustomer.email}</strong>? Mọi phiên đăng nhập hiện tại của
                     khách sẽ bị thu hồi ngay lập tức.
                   </>
                 ) : (
                   <>
                     Bạn có chắc chắn muốn <strong>MỞ KHÓA</strong> tài khoản thành viên{' '}
-                    <strong>{confirmToggleCustomer.email}</strong> để khách đăng nhập trở lại?
+                    <strong>{activeToggleCustomer.email}</strong> để khách đăng nhập trở lại?
                   </>
                 )}
               </p>
@@ -3235,13 +3258,13 @@ export function AdminUsersPage() {
                   type="button"
                   disabled={toggleCustomerBusy}
                   onClick={() => void executeToggleCustomerActive()}
-                  className={`retro-btn ${confirmToggleCustomer.is_active ? 'retro-btn-danger' : 'retro-btn-success'} ${toggleCustomerBusy ? 'is-busy' : ''}`}
+                  className={`retro-btn ${activeToggleCustomer.is_active ? 'retro-btn-danger' : 'retro-btn-success'} ${toggleCustomerBusy ? 'is-busy' : ''}`}
                 >
                   {toggleCustomerBusy && <IconSpinner size={14} />}
                   <span>
                     {toggleCustomerBusy
                       ? 'ĐANG XỬ LÝ...'
-                      : confirmToggleCustomer.is_active
+                      : activeToggleCustomer.is_active
                         ? 'XÁC NHẬN KHÓA'
                         : 'XÁC NHẬN MỞ KHÓA'}
                   </span>
@@ -3255,9 +3278,9 @@ export function AdminUsersPage() {
       {/* =====================================================================
           MODAL: SELF-SERVICE ADMIN OWN PASSWORD CHANGE (ALL ROLES)
          ===================================================================== */}
-      {showOwnPwModal && (
+      {ownPwModal.rendered && (
         <div
-          className="admin-modal-backdrop"
+          className={`admin-modal-backdrop ${ownPwModal.stateClass}`}
           onClick={() => !savingOwnPw && setShowOwnPwModal(false)}
         >
           <div
@@ -3394,8 +3417,11 @@ export function AdminUsersPage() {
       {/* =====================================================================
           MODAL: ADD STAFF & EDIT STAFF
          ===================================================================== */}
-      {showAddStaffModal && (
-        <div className="admin-modal-backdrop" onClick={() => setShowAddStaffModal(false)}>
+      {addStaffModal.rendered && (
+        <div
+          className={`admin-modal-backdrop ${addStaffModal.stateClass}`}
+          onClick={() => setShowAddStaffModal(false)}
+        >
           <div
             className="admin-modal-box"
             style={{ maxWidth: '480px' }}
@@ -3574,9 +3600,9 @@ export function AdminUsersPage() {
         </div>
       )}
 
-      {editingStaff && (
+      {activeEditingStaff && (
         <div
-          className="admin-modal-backdrop"
+          className={`admin-modal-backdrop ${editStaffModal.stateClass}`}
           onClick={() => !editStaffBusy && setEditingStaff(null)}
         >
           <div
@@ -3585,7 +3611,7 @@ export function AdminUsersPage() {
             onClick={e => e.stopPropagation()}
           >
             <div className="retro-window-header">
-              <span>CHỈNH SỬA NHÂN SỰ: @{editingStaff.username}</span>
+              <span>CHỈNH SỬA NHÂN SỰ: @{activeEditingStaff.username}</span>
               <button
                 type="button"
                 onClick={() => setEditingStaff(null)}
@@ -3702,7 +3728,7 @@ export function AdminUsersPage() {
                 <input
                   type="checkbox"
                   checked={editIsActive}
-                  disabled={me?.admin_id === editingStaff.admin_id}
+                  disabled={me?.admin_id === activeEditingStaff.admin_id}
                   onChange={e => setEditIsActive(e.target.checked)}
                 />
                 <span>Cho phép tài khoản này đăng nhập vận hành</span>

@@ -2261,6 +2261,11 @@ button:disabled {
   color: var(--text-primary);
 }
 
+.chat-bubble-assistant:has(.chat-table-wrap) {
+  flex: 1;
+  max-width: calc(100% - 41px);
+}
+
 .chat-bubble-agent {
   background: #f7fcf9;
   border-left: 3.5px solid var(--status-success);
@@ -2385,6 +2390,40 @@ button:disabled {
   color: var(--ink-text);
   border-bottom: 1.5px solid var(--ink-border);
   white-space: nowrap;
+}
+
+.chat-callout {
+  margin: 8px 0 4px;
+  padding: 9px 12px;
+  background: var(--accent-amber-light);
+  border: 1px solid var(--border-light);
+  border-left: 3.5px solid var(--accent-primary);
+  border-radius: 6px;
+  color: var(--ink-text);
+}
+
+.chat-callout-line {
+  margin: 0;
+  font-size: 0.89rem;
+  line-height: 1.58;
+}
+
+.chat-callout-line + .chat-callout-line {
+  margin-top: 4px;
+}
+
+.chat-code-block {
+  margin: 6px 0;
+  padding: 10px 12px;
+  max-width: 100%;
+  overflow-x: auto;
+  background: var(--bg-surface-pure);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--ink-text);
 }
 
 .chat-streaming-cursor {
@@ -2640,14 +2679,15 @@ button:disabled {
   align-items: center;
   justify-content: center;
   gap: 5px;
+  height: 36px;
   min-height: 36px;
-  padding: 6px 10px;
+  padding: 6px 9px;
   border-radius: 6px;
   border: 1.5px solid var(--ink-border);
   font-family: var(--font-sans);
   font-size: 0.79rem;
   font-weight: 700;
-  line-height: 1.2;
+  line-height: 1;
   white-space: nowrap;
   min-width: 0;
   box-sizing: border-box;
@@ -2729,7 +2769,7 @@ button:disabled {
   transform: translate(-1px, -1px);
 }
 
-@container (max-width: 415px) {
+@container (max-width: 435px) {
   .chat-product-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2820,62 +2860,7 @@ button:disabled {
   line-height: 1.4;
 }
 
-/* Busy & Error Indicators */
-.chat-busy-indicator {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  max-width: 100%;
-  padding: 7px 10px 7px 13px;
-  background: var(--bg-surface-pure);
-  border: 1.5px solid var(--ink-border);
-  border-radius: var(--radius-pill);
-  font-size: 0.8rem;
-  font-weight: 600;
-  align-self: flex-start;
-  box-shadow: 1.5px 1.5px 0px var(--ink-border);
-}
-
-.chat-busy-label {
-  display: inline-block;
-  min-width: 0;
-  flex: 1;
-  line-height: 1.4;
-}
-
-.chat-stop-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-  padding: 3px 9px;
-  background: #ffe5e1;
-  color: var(--status-danger);
-  border: 1px solid var(--ink-border);
-  border-radius: var(--radius-pill);
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition:
-    transform 0.08s ease,
-    background-color 0.1s ease;
-}
-
-.chat-stop-btn:hover {
-  background: #ffd4cc;
-  transform: scale(1.03);
-}
-
-.chat-pulse-dot {
-  width: 8px;
-  height: 8px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: var(--accent-primary);
-  animation: retroSegmentPulse 0.9s infinite;
-}
-
+/* Error Indicators */
 .chat-error-alert {
   margin: 0;
   padding: 11px 14px;
@@ -9185,12 +9170,232 @@ button.is-busy {
   gap: 8px;
 }
 
+/* ==========================================================================
+   13. NEO-RETRO WARM OS MOTION & PRESENCE SYSTEM (ZERO-DEPENDENCY GPU)
+   ========================================================================== */
+
+@keyframes retroBackdropIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes retroBackdropOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes retroModalPopIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.968);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes retroModalPopOut {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.975);
+  }
+}
+
+@keyframes retroToastIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.975);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes retroToastOut {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+@keyframes retroCompareTrayIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 14px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+@keyframes retroCompareTrayOut {
+  from {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, 12px) scale(0.985);
+  }
+}
+
+@keyframes retroRouteSettle {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes retroBadgePop {
+  0% {
+    transform: scale(0.84);
+  }
+  55% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Route & Interactive Stage Settle (no fill-mode so fixed descendants stay viewport-bound) */
+.os-route-stage {
+  animation: retroRouteSettle 140ms var(--ease-os-out);
+  min-width: 0;
+}
+
+.os-stage-enter {
+  animation: retroRouteSettle var(--speed-base) var(--ease-os-out);
+}
+
+/* Unified Backdrops (Storefront & Admin) */
+.chat-backdrop,
+.cart-backdrop,
+.compare-matrix-backdrop,
+.admin-modal-backdrop,
+.admin-drawer-backdrop,
+.retro-modal-backdrop {
+  animation: retroBackdropIn 150ms ease;
+}
+
+.chat-backdrop.is-closing,
+.cart-backdrop.is-closing,
+.compare-matrix-backdrop.is-closing,
+.admin-modal-backdrop.is-closing,
+.admin-drawer-backdrop.is-closing,
+.retro-modal-backdrop.is-closing {
+  animation: retroBackdropOut 150ms ease forwards;
+  pointer-events: none;
+}
+
+/* Slide-Over Drawers (Cart & Admin Console) */
+.cart-drawer,
+.cart-drawer.is-open,
+.admin-drawer-backdrop .admin-drawer {
+  animation: chatDrawerEnter var(--speed-drawer) var(--ease-os-out);
+}
+
+.cart-drawer.is-closing,
+.admin-drawer-backdrop.is-closing .admin-drawer {
+  animation: chatDrawerExit var(--speed-base) ease forwards;
+  pointer-events: none;
+}
+
+/* Vintage OS Modal & Dialog Pop */
+.admin-modal-box,
+.compare-matrix-box,
+.retro-modal-backdrop > .retro-window {
+  animation: retroModalPopIn var(--speed-base) var(--ease-os-out);
+}
+
+.admin-modal-backdrop.is-closing .admin-modal-box,
+.compare-matrix-backdrop.is-closing .compare-matrix-box,
+.retro-modal-backdrop.is-closing > .retro-window {
+  animation: retroModalPopOut 145ms ease forwards;
+  pointer-events: none;
+}
+
+/* Floating Cart Toast, Compare Tray, Chat FAB & Badge Pop */
+.cart-toast-banner,
+.cart-toast-banner.is-open {
+  animation: retroToastIn 180ms var(--ease-os-out);
+}
+
+.cart-toast-banner.is-closing {
+  animation: retroToastOut 150ms ease forwards;
+  pointer-events: none;
+}
+
+.compare-tray,
+.compare-tray.is-open {
+  animation: retroCompareTrayIn 190ms var(--ease-os-out);
+}
+
+.compare-tray.is-closing {
+  animation: retroCompareTrayOut 155ms ease forwards;
+  pointer-events: none;
+}
+
+.chat-fab {
+  animation: retroToastIn 180ms var(--ease-os-out);
+}
+
+.nav-cart-badge {
+  animation: retroBadgePop 170ms var(--ease-spring);
+}
+
+/* Admin Expandable Sub-Table Row Smooth Reveal */
+.admin-expanded-row td > div {
+  animation: retroRouteSettle 150ms var(--ease-os-out);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .retro-spin,
   .retro-skeleton,
   .retro-top-progress-bar,
   .progressive-img-shimmer,
-  .chat-thinking-dots span {
+  .chat-thinking-dots span,
+  .os-route-stage,
+  .os-stage-enter,
+  .chat-backdrop,
+  .cart-backdrop,
+  .compare-matrix-backdrop,
+  .admin-modal-backdrop,
+  .admin-drawer-backdrop,
+  .retro-modal-backdrop,
+  .cart-drawer,
+  .admin-drawer-backdrop .admin-drawer,
+  .admin-modal-box,
+  .compare-matrix-box,
+  .retro-modal-backdrop > .retro-window,
+  .cart-toast-banner,
+  .compare-tray,
+  .chat-fab,
+  .nav-cart-badge,
+  .admin-expanded-row td > div {
     animation: none !important;
   }
 

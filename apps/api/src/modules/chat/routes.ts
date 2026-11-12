@@ -210,6 +210,8 @@ export async function chatRoutes(app: FastifyInstance) {
     { schema: { body: versionBody, response: { 200: sessionViewSchema } } },
     async request => {
       const guest = await guestSession(request);
+      limit(`chat:ctrl:${guest.id}`, 8, 60000);
+      limit(`chat:ctrl-ip:${request.ip}`, 20, 60000);
       return toSessionView(await requestHuman(guest.id, request.body.expected_control_version));
     }
   );
@@ -218,6 +220,8 @@ export async function chatRoutes(app: FastifyInstance) {
     { schema: { body: versionBody, response: { 200: sessionViewSchema } } },
     async request => {
       const guest = await guestSession(request);
+      limit(`chat:ctrl:${guest.id}`, 8, 60000);
+      limit(`chat:ctrl-ip:${request.ip}`, 20, 60000);
       return toSessionView(await resumeAi(guest.id, request.body.expected_control_version));
     }
   );

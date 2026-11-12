@@ -2,6 +2,7 @@ import { createBrowserRouter, Link, Outlet, useLocation } from 'react-router-dom
 import { lazy, Suspense, useEffect, useState } from 'react';
 import type { StoreInfo } from '@lapbot/contracts';
 import { apiJson } from '../lib/api-client.js';
+import { useAnimatedPresence } from '../lib/use-animated-presence.js';
 import { CatalogPage } from '../pages/catalog/CatalogPage.js';
 import { ChatProvider, useChat } from '../features/chat/ChatContext.js';
 import { AuthProvider, useAuth } from '../features/auth/AuthContext.js';
@@ -146,6 +147,7 @@ function StoreFooter() {
 function Shell() {
   const chat = useChat();
   const cart = useCart();
+  const chatBackdrop = useAnimatedPresence(chat.open, 180);
   const { customer, loading: authLoading } = useAuth();
   const location = useLocation();
   const isCatalog =
@@ -199,7 +201,11 @@ function Shell() {
             >
               <IconShoppingCart size={15} />
               <span>Giỏ hàng</span>
-              {cart.count > 0 && <span className="nav-cart-badge">{cart.count}</span>}
+              {cart.count > 0 && (
+                <span key={cart.count} className="nav-cart-badge">
+                  {cart.count}
+                </span>
+              )}
             </button>
 
             {/* Customer Member / Login Link */}
@@ -259,7 +265,9 @@ function Shell() {
         </header>
 
         <div className="main-content-area">
-          <Outlet />
+          <div key={location.pathname} className="os-route-stage">
+            <Outlet />
+          </div>
         </div>
 
         <StoreFooter />
@@ -267,7 +275,13 @@ function Shell() {
 
       <CartDrawer />
       <ChatDrawer />
-      {chat.open && <div className="chat-backdrop" onClick={chat.closeChat} aria-hidden="true" />}
+      {chatBackdrop.rendered && (
+        <div
+          className={`chat-backdrop ${chatBackdrop.stateClass}`}
+          onClick={chat.closeChat}
+          aria-hidden="true"
+        />
+      )}
 
       {!chat.open && (
         <button

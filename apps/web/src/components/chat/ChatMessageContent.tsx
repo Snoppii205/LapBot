@@ -95,7 +95,8 @@ export function ChatMessageContent({
   }
 
   for (let index = 0; index < lines.length; index++) {
-    const line = lines[index]!.trim();
+    const rawLine = lines[index]!;
+    const line = rawLine.trim();
     if (!line) {
       if (currentList?.type === 'ol') {
         let nextIdx = index + 1;
@@ -105,6 +106,47 @@ export function ChatMessageContent({
         }
       }
       flushList();
+      continue;
+    }
+
+    // Fenced code / spec block detection: ```
+    if (line.startsWith('```')) {
+      flushList();
+      const codeLines: string[] = [];
+      index++;
+      while (index < lines.length && !lines[index]!.trim().startsWith('```')) {
+        codeLines.push(lines[index]!);
+        index++;
+      }
+      elements.push(
+        <pre key={`code-${elements.length}`} className="chat-code-block">
+          <code>{codeLines.join('\n')}</code>
+        </pre>
+      );
+      continue;
+    }
+
+    // Blockquote / Verdict Callout detection: > ...
+    if (line.startsWith('>')) {
+      flushList();
+      const quoteLines: string[] = [];
+      while (index < lines.length && lines[index]!.trim().startsWith('>')) {
+        const cleanedQuote = lines[index]!.trim().replace(/^>\s?/, '');
+        if (cleanedQuote) quoteLines.push(cleanedQuote);
+        index++;
+      }
+      index--;
+      if (quoteLines.length > 0) {
+        elements.push(
+          <blockquote key={`quote-${elements.length}`} className="chat-callout">
+            {quoteLines.map((qLine, qIdx) => (
+              <p key={qIdx} className="chat-callout-line">
+                {parseInline(qLine)}
+              </p>
+            ))}
+          </blockquote>
+        );
+      }
       continue;
     }
 

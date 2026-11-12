@@ -47,7 +47,9 @@ export function gateAccepts(state: ActiveTurn): boolean {
   );
 }
 
-export function emitStatus(state: ActiveTurn, stage: 'thinking' | 'searching') {
+export type TurnProgressStage = 'thinking' | 'searching' | 'comparing' | 'preparing_order';
+
+export function emitStatus(state: ActiveTurn, stage: TurnProgressStage) {
   if (!gateAccepts(state)) return;
   state.send('status', { turn_id: state.turnId, stage });
 }

@@ -2,6 +2,7 @@ import { Suspense, useEffect, useState, type FormEvent, type ReactNode } from 'r
 import { Link, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import type { AdminProfile } from '@lapbot/contracts';
 import { apiJson } from '../../lib/api-client.js';
+import { useAnimatedPresence } from '../../lib/use-animated-presence.js';
 import {
   AdminKpiGridSkeleton,
   RetroLoadingBar,
@@ -73,6 +74,7 @@ function AdminShell({ admin, children }: { admin: AdminProfile; children: ReactN
 
   // Password change modal state
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const pwModal = useAnimatedPresence(showPasswordModal, 150);
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -280,14 +282,19 @@ function AdminShell({ admin, children }: { admin: AdminProfile; children: ReactN
               </div>
             }
           >
-            {children}
+            <div key={location.pathname} className="os-route-stage">
+              {children}
+            </div>
           </Suspense>
         </main>
       </div>
 
       {/* Operator Password Change Modal */}
-      {showPasswordModal && (
-        <div className="admin-modal-backdrop" onClick={() => setShowPasswordModal(false)}>
+      {pwModal.rendered && (
+        <div
+          className={`admin-modal-backdrop ${pwModal.stateClass}`}
+          onClick={() => setShowPasswordModal(false)}
+        >
           <div
             className="admin-modal-box"
             style={{ maxWidth: '480px' }}

@@ -21,6 +21,7 @@ type ProviderFrame = {
     finish_reason?: string;
     delta?: {
       content?: string;
+      reasoning_content?: string;
       tool_calls?: ToolFragment[];
     };
   }>;

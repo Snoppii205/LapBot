@@ -41,6 +41,7 @@ import { apiJson } from '../../lib/api-client.js';
 import { availabilityClass, availabilityLabel } from '../../lib/availability.js';
 import { catalogImageUrl } from '../../lib/catalog-image.js';
 import { formatLaptopTitle, money } from '../../lib/format.js';
+import { usePresenceValue } from '../../lib/use-animated-presence.js';
 
 const FALLBACK_BRANDS: CatalogBrandFacet[] = [
   { brand: 'Apple', count: 0 },
@@ -157,6 +158,14 @@ export function CatalogPage() {
   const [compareItems, setCompareItems] = useState<VariantSummary[]>(loadInitialCompare);
   const [compareNotice, setCompareNotice] = useState('');
   const [showCompareModal, setShowCompareModal] = useState(false);
+
+  const compareTrayPresence = usePresenceValue(compareItems.length > 0 ? compareItems : null, 160);
+  const compareModalPresence = usePresenceValue(
+    showCompareModal && compareItems.length >= 2 ? compareItems : null,
+    155
+  );
+  const trayItems = compareTrayPresence.activeValue;
+  const modalItems = compareModalPresence.activeValue;
 
   const chat = useChat();
 
@@ -417,15 +426,18 @@ export function CatalogPage() {
   };
 
   // Best-value highlights inside Compare Matrix
+  const comparedMatrixSource = modalItems ?? compareItems;
   const minComparedPrice =
-    compareItems.length >= 2 ? Math.min(...compareItems.map(v => v.price_vnd)) : null;
+    comparedMatrixSource.length >= 2
+      ? Math.min(...comparedMatrixSource.map(v => v.price_vnd))
+      : null;
   const maxComparedRam =
-    compareItems.length >= 2 && new Set(compareItems.map(v => v.ram_gb)).size > 1
-      ? Math.max(...compareItems.map(v => v.ram_gb))
+    comparedMatrixSource.length >= 2 && new Set(comparedMatrixSource.map(v => v.ram_gb)).size > 1
+      ? Math.max(...comparedMatrixSource.map(v => v.ram_gb))
       : null;
   const maxComparedSsd =
-    compareItems.length >= 2 && new Set(compareItems.map(v => v.ssd_gb)).size > 1
-      ? Math.max(...compareItems.map(v => v.ssd_gb))
+    comparedMatrixSource.length >= 2 && new Set(comparedMatrixSource.map(v => v.ssd_gb)).size > 1
+      ? Math.max(...comparedMatrixSource.map(v => v.ssd_gb))
       : null;
 
   const totalAllBrandsCount = useMemo(
@@ -938,12 +950,15 @@ export function CatalogPage() {
       )}
 
       {/* Sticky Bottom Hardware Comparison Tray (COMPARE_DECK.SYS) */}
-      {compareItems.length > 0 && (
-        <aside className="compare-tray" aria-label="Khay so sánh cấu hình laptop">
+      {trayItems && (
+        <aside
+          className={`compare-tray ${compareTrayPresence.stateClass}`}
+          aria-label="Khay so sánh cấu hình laptop"
+        >
           <div className="compare-tray-head">
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
               <IconScale size={14} />
-              <span>COMPARE_DECK.SYS // ĐÃ CHỌN {compareItems.length}/3 CẤU HÌNH</span>
+              <span>COMPARE_DECK.SYS // ĐÃ CHỌN {trayItems.length}/3 CẤU HÌNH</span>
             </span>
             <button
               type="button"
@@ -962,7 +977,7 @@ export function CatalogPage() {
           <div className="compare-tray-body">
             <div className="compare-tray-slots">
               {[0, 1, 2].map(slotIdx => {
-                const slotItem = compareItems[slotIdx];
+                const slotItem = trayItems[slotIdx];
                 if (!slotItem) {
                   return (
                     <div key={slotIdx} className="compare-tray-slot empty">
@@ -1019,18 +1034,18 @@ export function CatalogPage() {
               </button>
               <button
                 type="button"
-                disabled={compareItems.length < 2}
+                disabled={trayItems.length < 2}
                 className="retro-btn retro-btn-primary"
                 onClick={() => setShowCompareModal(true)}
                 title={
-                  compareItems.length < 2
+                  trayItems.length < 2
                     ? 'Chọn ít nhất 2 cấu hình để mở bảng đối chiếu song song'
                     : undefined
                 }
               >
                 <IconScale size={14} />
                 <span>
-                  {compareItems.length < 2 ? 'Chọn thêm 1 máy để so sánh' : 'Đối chiếu thông số'}
+                  {trayItems.length < 2 ? 'Chọn thêm 1 máy để so sánh' : 'Đối chiếu thông số'}
                 </span>
               </button>
             </div>
@@ -1039,15 +1054,16 @@ export function CatalogPage() {
       )}
 
       {/* Side-by-Side Hardware Comparison Matrix Modal */}
-      {showCompareModal && compareItems.length >= 2 && (
-        <div className="compare-matrix-backdrop" onClick={() => setShowCompareModal(false)}>
+      {modalItems && (
+        <div
+          className={`compare-matrix-backdrop ${compareModalPresence.stateClass}`}
+          onClick={() => setShowCompareModal(false)}
+        >
           <div className="compare-matrix-box" onClick={e => e.stopPropagation()}>
             <div className="retro-window-header">
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                 <IconScale size={15} />
-                <span>
-                  COMPARE_MATRIX.EXE // ĐỐI CHIẾU {compareItems.length} CẤU HÌNH PHẦN CỨNG
-                </span>
+                <span>COMPARE_MATRIX.EXE // ĐỐI CHIẾU {modalItems.length} CẤU HÌNH PHẦN CỨNG</span>
               </span>
               <button
                 type="button"
@@ -1064,7 +1080,7 @@ export function CatalogPage() {
                 <thead>
                   <tr>
                     <th>Tiêu chí phần cứng</th>
-                    {compareItems.map(v => {
+                    {modalItems.map(v => {
                       const img = catalogImageUrl(v.image_url);
                       return (
                         <td
@@ -1133,7 +1149,7 @@ export function CatalogPage() {
                 <tbody>
                   <tr>
                     <th>Giá niêm yết</th>
-                    {compareItems.map(v => (
+                    {modalItems.map(v => (
                       <td
                         key={v.variant_id}
                         className={
@@ -1167,7 +1183,7 @@ export function CatalogPage() {
                   </tr>
                   <tr>
                     <th>Tình trạng kho</th>
-                    {compareItems.map(v => (
+                    {modalItems.map(v => (
                       <td key={v.variant_id}>
                         <span
                           className={`stock-status ${availabilityClass(v.availability_status)}`}
@@ -1180,7 +1196,7 @@ export function CatalogPage() {
                   </tr>
                   <tr>
                     <th>Nhu cầu tối ưu</th>
-                    {compareItems.map(v => (
+                    {modalItems.map(v => (
                       <td key={v.variant_id}>
                         {CATEGORY_LABELS[v.usage_category] ?? v.usage_category}
                       </td>
@@ -1188,7 +1204,7 @@ export function CatalogPage() {
                   </tr>
                   <tr>
                     <th>Vi xử lý (CPU)</th>
-                    {compareItems.map(v => (
+                    {modalItems.map(v => (
                       <td key={v.variant_id} style={{ fontWeight: 600 }}>
                         {v.cpu}
                       </td>
@@ -1196,7 +1212,7 @@ export function CatalogPage() {
                   </tr>
                   <tr>
                     <th>Đồ họa (GPU)</th>
-                    {compareItems.map(v => (
+                    {modalItems.map(v => (
                       <td key={v.variant_id}>
                         {v.gpu && v.gpu !== 'Chưa xác minh' ? v.gpu : 'Đồ họa tích hợp'}
                       </td>
@@ -1204,7 +1220,7 @@ export function CatalogPage() {
                   </tr>
                   <tr>
                     <th>Bộ nhớ RAM</th>
-                    {compareItems.map(v => (
+                    {modalItems.map(v => (
                       <td
                         key={v.variant_id}
                         className={
@@ -1220,7 +1236,7 @@ export function CatalogPage() {
                   </tr>
                   <tr>
                     <th>Ổ cứng SSD</th>
-                    {compareItems.map(v => (
+                    {modalItems.map(v => (
                       <td
                         key={v.variant_id}
                         className={
@@ -1236,7 +1252,7 @@ export function CatalogPage() {
                   </tr>
                   <tr>
                     <th>Màn hình & Màu</th>
-                    {compareItems.map(v => (
+                    {modalItems.map(v => (
                       <td key={v.variant_id}>
                         <div>{v.screen}</div>
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
@@ -1247,7 +1263,7 @@ export function CatalogPage() {
                   </tr>
                   <tr>
                     <th>Hành động</th>
-                    {compareItems.map(v => (
+                    {modalItems.map(v => (
                       <td key={v.variant_id}>
                         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                           {v.in_stock ? (
@@ -1282,7 +1298,7 @@ export function CatalogPage() {
             <div className="admin-drawer-footer">
               <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                 Cần phân tích sâu hiệu năng thực tế (code, render, pin, nhiệt độ) giữa{' '}
-                {compareItems.length} mẫu máy này?
+                {modalItems.length} mẫu máy này?
               </span>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button
