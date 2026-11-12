@@ -9019,19 +9019,29 @@ button.is-busy {
   align-self: flex-start;
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 13px;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
   background: var(--bg-surface-raised);
   border: 1.5px solid var(--ink-border);
   border-radius: 10px 10px 10px 3px;
   box-shadow: 2px 2px 0 var(--ink-border);
   max-width: 90%;
+  animation: chatWidgetSlideIn 0.16s var(--ease-spring);
+}
+
+.chat-thinking-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
 }
 
 .chat-thinking-dots {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  flex-shrink: 0;
 }
 
 .chat-thinking-dots span {
@@ -9052,10 +9062,93 @@ button.is-busy {
 }
 
 .chat-thinking-label {
-  font-family: var(--font-mono);
-  font-size: 0.74rem;
+  font-family: var(--font-sans);
+  font-size: 0.86rem;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.chat-thinking-stop-btn,
+.chat-streaming-stop-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: var(--bg-surface-pure);
+  color: var(--status-danger);
+  border: 1px solid var(--ink-border);
+  border-radius: var(--radius-xs);
+  box-shadow: 1px 1px 0 var(--ink-border);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    transform var(--speed-fast) var(--ease-spring),
+    background-color var(--speed-fast) ease;
+}
+
+.chat-thinking-stop-btn:hover,
+.chat-streaming-stop-btn:hover {
+  background: #ffeae6;
+  transform: translate(-1px, -1px);
+  box-shadow: 1.5px 1.5px 0 var(--ink-border);
+}
+
+.chat-thinking-stop-btn:active,
+.chat-streaming-stop-btn:active {
+  transform: translate(1px, 1px);
+  box-shadow: 0 0 0 var(--ink-border);
+}
+
+/* Sender row when assistant is streaming text */
+.chat-bubble-sender-streaming {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.chat-bubble-sender-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-streaming-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px;
+  background: var(--accent-amber-light);
+  border: 1px solid var(--ink-border);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--ink-text);
+  letter-spacing: 0.03em;
+}
+
+.chat-streaming-pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  animation: retroDotPulse 0.9s ease-in-out infinite;
+}
+
+/* Send button in morphing busy/stop mode */
+.chat-send-btn.is-busy {
+  background: #e05a3a;
+  color: #fffdf9;
+}
+
+.chat-send-btn.is-busy:hover {
+  background: #c84628;
 }
 
 /* Admin AI Sandbox Live Probe Terminal Loading */

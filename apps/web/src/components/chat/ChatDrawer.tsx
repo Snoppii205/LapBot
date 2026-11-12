@@ -45,6 +45,7 @@ import {
   IconSparkleAi,
   IconSpinner,
   IconSsd,
+  IconStop,
   IconZap
 } from '../icons/RetroIcons.js';
 
@@ -1093,7 +1094,25 @@ export function ChatDrawer() {
                     height="32"
                   />
                   <div className="chat-bubble chat-bubble-assistant">
-                    <div className="chat-bubble-sender">LAPBOT.AI</div>
+                    <div className="chat-bubble-sender chat-bubble-sender-streaming">
+                      <div className="chat-bubble-sender-left">
+                        <span>LAPBOT.AI</span>
+                        <span className="chat-streaming-badge">
+                          <span className="chat-streaming-pulse-dot" />
+                          <span>ĐANG SOẠN…</span>
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="chat-streaming-stop-btn"
+                        onClick={chat.stopStreaming}
+                        title="Dừng tạo phản hồi"
+                        aria-label="Dừng tạo phản hồi"
+                      >
+                        <IconClose size={11} />
+                        <span>Dừng</span>
+                      </button>
+                    </div>
                     <ChatMessageContent content={chat.streaming} isStreaming={true} />
                   </div>
                 </div>
@@ -1134,30 +1153,9 @@ export function ChatDrawer() {
                       ? 'Đang tra cứu tồn kho & đối chiếu cấu hình…'
                       : 'Đang phân tích nhu cầu của bạn…'
                   }
+                  onStop={chat.stopStreaming}
                 />
               </div>
-            </div>
-          )}
-
-          {chat.busy && (
-            <div className="chat-busy-indicator">
-              <span className="chat-pulse-dot" />
-              <span className="chat-busy-label">
-                {chat.streamStage === 'searching'
-                  ? 'LapBot đang tra cứu tồn kho & đối chiếu cấu hình…'
-                  : chat.streamStage === 'thinking'
-                    ? 'LapBot đang phân tích nhu cầu của bạn…'
-                    : 'LapBot đang soạn tư vấn…'}
-              </span>
-              <button
-                type="button"
-                className="chat-stop-btn"
-                onClick={chat.stopStreaming}
-                title="Dừng tạo phản hồi"
-              >
-                <IconClose size={12} />
-                <span>Dừng</span>
-              </button>
             </div>
           )}
 
@@ -1298,13 +1296,14 @@ export function ChatDrawer() {
             disabled={!chat.session || chat.busy}
           />
           <button
-            className="chat-send-btn"
-            type="submit"
-            aria-label="Gửi tin nhắn"
-            title="Gửi tin nhắn (Enter)"
-            disabled={!canSend}
+            className={`chat-send-btn ${chat.busy ? 'is-busy' : ''}`}
+            type={chat.busy ? 'button' : 'submit'}
+            onClick={chat.busy ? () => chat.stopStreaming() : undefined}
+            aria-label={chat.busy ? 'Dừng tạo phản hồi' : 'Gửi tin nhắn'}
+            title={chat.busy ? 'Dừng tạo phản hồi (Esc hoặc nhấn)' : 'Gửi tin nhắn (Enter)'}
+            disabled={!chat.busy && !canSend}
           >
-            <IconSend size={16} />
+            {chat.busy ? <IconStop size={15} /> : <IconSend size={16} />}
           </button>
         </div>
         <div className="chat-compose-footer">

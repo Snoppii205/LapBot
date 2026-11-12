@@ -6,6 +6,7 @@ import {
   type ImgHTMLAttributes,
   type ReactNode
 } from 'react';
+import { IconClose } from '../icons/RetroIcons.js';
 
 export interface WindowTitleBarProps {
   title: string;
@@ -555,18 +556,34 @@ export function OrderDetailSkeleton() {
 
 /** Bong bóng trạng thái AI đang suy nghĩ / tra cứu kho thực tế trước khi stream chữ đầu tiên */
 export function ChatThinkingBubble({
-  label = 'Trợ lý đang đối chiếu cấu hình & tồn kho...'
+  label = 'Trợ lý đang đối chiếu cấu hình & tồn kho...',
+  onStop
 }: {
   label?: string;
+  onStop?: () => void;
 }) {
   return (
     <div className="chat-thinking-bubble" role="status" aria-live="polite">
-      <div className="chat-thinking-dots" aria-hidden="true">
-        <span />
-        <span />
-        <span />
+      <div className="chat-thinking-main">
+        <div className="chat-thinking-dots" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+        <span className="chat-thinking-label">{label}</span>
       </div>
-      <span className="chat-thinking-label">{label}</span>
+      {onStop && (
+        <button
+          type="button"
+          className="chat-thinking-stop-btn"
+          onClick={onStop}
+          title="Dừng tạo phản hồi"
+          aria-label="Dừng tạo phản hồi"
+        >
+          <IconClose size={11} />
+          <span>Dừng</span>
+        </button>
+      )}
     </div>
   );
 }

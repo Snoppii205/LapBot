@@ -544,6 +544,24 @@ export function IconClock({ size = 16, className, ...rest }: IconProps) {
   );
 }
 
+/** Stop / Square — Dừng streaming AI */
+export function IconStop({ size = 16, className, ...rest }: IconProps) {
+  return (
+    <svg {...baseProps(size, className, rest)}>
+      <rect
+        x="5"
+        y="5"
+        width="14"
+        height="14"
+        rx="2"
+        fill="currentColor"
+        stroke="currentColor"
+        strokeWidth="1.85"
+      />
+    </svg>
+  );
+}
+
 /** Message Square — Chat tư vấn máy */
 export function IconMessageSquare({ size = 16, className, ...rest }: IconProps) {
   return (
