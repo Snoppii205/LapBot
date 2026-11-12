@@ -15,6 +15,7 @@ import {
   WindowFrame
 } from '../components/os/RetroOsPrimitives.js';
 import {
+  IconFileText,
   IconGrid,
   IconPackage,
   IconShieldCheck,
@@ -76,6 +77,9 @@ const AdminUsersPage = lazy(() =>
 const AdminSettingsPage = lazy(() =>
   import('../pages/admin/AdminSettingsPage.js').then(m => ({ default: m.AdminSettingsPage }))
 );
+const ApiDocsPage = lazy(() =>
+  import('../pages/docs/ApiDocsPage.js').then(m => ({ default: m.ApiDocsPage }))
+);
 
 function RouteChunkFallback({ label = 'Đang khởi tạo phân hệ...' }: { label?: string }) {
   return (
@@ -111,6 +115,10 @@ function StoreFooter() {
           <span className="os-footer-tag">LAPBOT.OS v2.6</span>
         </div>
         <div className="os-footer-badges">
+          <Link className="os-mini-pill" to="/docs" style={{ textDecoration: 'none' }}>
+            <IconFileText size={14} />
+            <span>API Docs (OpenAPI)</span>
+          </Link>
           <span className="os-mini-pill">
             <IconShieldCheck size={14} />
             <span>Bảo hành chính hãng</span>
@@ -231,6 +239,18 @@ function Shell() {
               <span>{chat.open ? 'Đang mở Chat' : 'Tư vấn AI'}</span>
             </button>
 
+            <Link
+              className={`nav-item ${
+                location.pathname === '/docs' || location.pathname === '/api-docs'
+                  ? 'nav-item-active'
+                  : ''
+              }`}
+              to="/docs"
+            >
+              <IconFileText size={15} />
+              <span>API Docs</span>
+            </Link>
+
             <Link className="nav-item" to="/admin">
               <IconTerminalAdmin size={15} />
               <span>Admin</span>
@@ -309,6 +329,8 @@ export const router = createBrowserRouter([
       { path: '/login', element: defer(<AuthPage />) },
       { path: '/register', element: defer(<AuthPage />) },
       { path: '/account', element: defer(<AccountPage />) },
+      { path: '/docs', element: defer(<ApiDocsPage />) },
+      { path: '/api-docs', element: defer(<ApiDocsPage />) },
       { path: '*', element: <Missing /> }
     ]
   },

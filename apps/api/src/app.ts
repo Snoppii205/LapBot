@@ -9,6 +9,7 @@ import { guestRoutes as authRoutes } from './modules/auth/routes.js';
 import { orderRoutes } from './modules/orders/routes.js';
 import { chatRoutes } from './modules/chat/routes.js';
 import { adminRoutes } from './modules/admin/routes.js';
+import { registerOpenApiDocs } from './modules/docs/openapi.js';
 import { AppError } from './lib/errors.js';
 
 const STATIC_MIME_TYPES: Record<string, string> = {
@@ -96,6 +97,8 @@ export function createApp() {
     reply.header('X-Frame-Options', 'DENY');
     reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
   });
+
+  registerOpenApiDocs(app);
 
   app.get('/api/v1/health', async () => ({ status: 'ok' }));
   app.get('/api/v1/health/ready', async (_request, reply) => {

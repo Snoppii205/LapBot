@@ -456,3 +456,42 @@ test('health endpoint emits hardened security headers', async () => {
     await app.close();
   }
 });
+
+test('openapi.json documents all /api/v1 endpoints with valid OpenAPI 3.0.3 schemas', async () => {
+  process.env.DATABASE_URL ??= 'postgres://lapbot:lapbot@localhost:5432/lapbot';
+  const { createApp } = await import('../src/app.js');
+  const app = createApp();
+  try {
+    await app.ready();
+    const res = await app.inject({ method: 'GET', url: '/api/v1/openapi.json' });
+    assert.equal(res.statusCode, 200);
+    const spec = res.json() as {
+      openapi: string;
+      paths: Record<string, Record<string, { summary?: string; 'x-auth-level'?: string }>>;
+    };
+    assert.equal(spec.openapi, '3.0.3');
+
+    const operations: Array<{ method: string; path: string; summary?: string }> = [];
+    for (const [path, methods] of Object.entries(spec.paths)) {
+      assert.equal(path.includes(':'), false, `Path ${path} must convert :param to {param}`);
+      for (const [method, op] of Object.entries(methods)) {
+        operations.push({ method, path, summary: op.summary });
+        assert.ok(
+          op.summary && !op.summary.startsWith(method.toUpperCase()),
+          `Missing Vietnamese summary for ${method.toUpperCase()} ${path}`
+        );
+        assert.ok(op['x-auth-level'], `Missing x-auth-level for ${method.toUpperCase()} ${path}`);
+      }
+    }
+    assert.ok(operations.length >= 60, `Expected at least 60 operations, got ${operations.length}`);
+
+    const serialized = JSON.stringify(spec);
+    assert.equal(
+      serialized.includes('"type":["'),
+      false,
+      'OpenAPI 3.0.3 must not contain JSON Schema array union types'
+    );
+  } finally {
+    await app.close();
+  }
+});
