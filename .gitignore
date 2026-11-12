@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Build & TypeScript outputs
+dist/
+*.tsbuildinfo
+
+# Test & coverage reports
+coverage/
+playwright-report/
+test-results/
+
+# Runtime diagnostics & local image uploads
+diagnostics/*.json
+data/uploads/
+
+# Environment variables & secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor, local AI & coursework submission docs
+.idea/
+*.iml
+.vscode/
+.agents/
+QUYEN_NOP/
+.DS_Store
+Thumbs.db

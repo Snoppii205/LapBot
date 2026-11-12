@@ -1,0 +1,72 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+
+:root {
+  /* Warm Vintage OS Surfaces (Poolsuite / PostHog / Gumroad Aesthetic) */
+  --bg-canvas: #f5f0e6;
+  --bg-canvas-grid: rgba(28, 26, 23, 0.055);
+  --bg-surface: #fffdf9;
+  --bg-surface-pure: #ffffff;
+  --bg-surface-raised: #faf5ea;
+  --bg-surface-tinted: #f3ebdd;
+  --bg-surface-warm: #ede5d5;
+  --bg-card-hover: #f7efe0;
+  --bg-surface-elevated: #ffffff;
+
+  /* Crisp Ink & Typography Colors */
+  --text-primary: #181614;
+  --text-secondary: #524c44;
+  --text-muted: #7f776d;
+  --ink-text: #181614;
+  --ink-primary: #181614;
+  --ink-secondary: #524c44;
+
+  /* High-Conversion Neo-Retro Accents */
+  --accent-primary: #d95326;
+  --accent-hover: #bf4319;
+  --accent-primary-hover: #bf4319;
+  --accent-light: #ffeadf;
+  --accent-amber: #f5c242;
+  --accent-amber-light: #fff5d6;
+  --accent-mint: #d7efe2;
+  --accent-sky: #dfebf6;
+
+  /* Neo-Brutalist Crisp Borders & Hard Offset Shadows */
+  --ink-border: #1c1a17;
+  --border-light: #dfd5c3;
+  --border-medium: #1c1a17;
+  --border-strong: #1c1a17;
+  --border-width: 1.5px;
+  --border-width-heavy: 2px;
+
+  /* Warm Paper Skeleton & Motion Surfaces */
+  --skeleton-base: #ece3d3;
+  --skeleton-highlight: #faf5eb;
+  --skeleton-border: rgba(28, 26, 23, 0.085);
+
+  --shadow-hard-xs: 2px 2px 0px #1c1a17;
+  --shadow-hard-sm: 3px 3px 0px #1c1a17;
+  --shadow-hard-md: 4px 4px 0px #1c1a17;
+  --shadow-hard-lg: 6px 6px 0px #1c1a17;
+
+  /* Business Status Colors */
+  --status-success: #1d6f42;
+  --status-warning: #a8650a;
+  --status-danger: #b82e21;
+
+  /* Dual Typography System */
+  --font-display: 'JetBrains Mono', 'Space Mono', monospace;
+  --font-serif: 'JetBrains Mono', 'Space Mono', monospace;
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-body: var(--font-sans);
+  --font-mono: 'JetBrains Mono', 'Space Mono', monospace;
+
+  /* Geometry & Motion */
+  --radius-window: 10px;
+  --radius-card: 8px;
+  --radius-keycap: 6px;
+  --radius-btn: 6px;
+  --radius-xs: 4px;
+  --radius-pill: 999px;
+  --speed-fast: 120ms;
+  --ease-spring: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
