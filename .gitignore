@@ -1,9 +1,11 @@
 # Dependencies
 node_modules/
 
-# Build & TypeScript outputs
+# Build & TypeScript/Python outputs
 dist/
 *.tsbuildinfo
+__pycache__/
+*.pyc
 
 # Test & coverage reports
 coverage/
