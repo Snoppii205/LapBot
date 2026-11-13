@@ -326,21 +326,195 @@ export function trimDanglingIncompleteSentence(text: string): string {
   return trimmed;
 }
 
+const EXTERNAL_URL_RE = /\b(?:https?:\/\/|www\.)[^\s<>"')\]]+/gi;
+
+const EXTERNAL_DOMAIN_RE =
+  /(?<![\p{L}\p{N}_@])(?:[a-z0-9-]+\.)+(?:com(?:\.vn)?|vn|net\.vn|shop|store)(?:\/[^\s<>"')\]]*)?(?![\p{L}\p{N}_])/giu;
+
+const COMPETITOR_RETAILER_RE = wb(
+  [
+    'thế\\s*giới\\s*di\\s*động',
+    'the\\s*gioi\\s*di\\s*dong',
+    'thegioididong',
+    'tgdd',
+    'điện\\s*máy\\s*xanh',
+    'dien\\s*may\\s*xanh',
+    'dienmayxanh',
+    'fpt\\s*shop',
+    'fptshop',
+    'cellphone\\s*s',
+    'cellphones',
+    'phong\\s*vũ',
+    'phong\\s*vu',
+    'phongvu',
+    'an\\s*phát\\s*(?:pc|computer)',
+    'anphatpc',
+    'anphat',
+    'hacom',
+    'hà\\s*nội\\s*computer',
+    'ha\\s*noi\\s*computer',
+    'hanoicomputer',
+    'gearvn',
+    'laptop\\s*88',
+    'laptop88',
+    'think\\s*pro',
+    'thinkpro',
+    'laptop\\s*az',
+    'laptopaz',
+    'phúc\\s*anh',
+    'phuc\\s*anh',
+    'phucanh',
+    'nguyễn\\s*kim',
+    'nguyen\\s*kim',
+    'nguyenkim',
+    'hoàng\\s*hà\\s*mobile',
+    'hoang\\s*ha\\s*mobile',
+    'hoanghamobile',
+    'di\\s*động\\s*việt',
+    'di\\s*dong\\s*viet',
+    'didongviet',
+    'viettel\\s*store',
+    'viettelstore',
+    'tnc\\s*store',
+    'tncstore',
+    'xgear',
+    'memoryzone',
+    'laptop\\s*tcc',
+    'laptoptcc',
+    'laptop\\s*trung\\s*trần',
+    'trungtran',
+    'vzstore',
+    'shopee',
+    'lazada',
+    'tiki',
+    'sendo',
+    'chợ\\s*tốt',
+    'cho\\s*tot',
+    'chotot',
+    'amazon',
+    'ebay',
+    'best\\s*buy',
+    'bestbuy',
+    'newegg',
+    'micro\\s*center',
+    'microcenter'
+  ].join('|')
+);
+
+const NO_EXTERNAL_SITE_FALLBACK =
+  'Hiện tại LapBot chỉ tư vấn và cung cấp các mẫu laptop sẵn có trong kho của hệ thống **LapBot**, không gợi ý hay dẫn link website bán hàng bên ngoài. Bạn cho mình biết thêm nhu cầu hoặc ngân sách để mình tìm mẫu thay thế phù hợp tại LapBot, hoặc bấm **Gặp nhân viên** để được hỗ trợ kiểm tra thêm nhé!';
+
+function hasExternalStoreMention(segment: string): boolean {
+  EXTERNAL_URL_RE.lastIndex = 0;
+  EXTERNAL_DOMAIN_RE.lastIndex = 0;
+  COMPETITOR_RETAILER_RE.lastIndex = 0;
+  return (
+    EXTERNAL_URL_RE.test(segment) ||
+    EXTERNAL_DOMAIN_RE.test(segment) ||
+    COMPETITOR_RETAILER_RE.test(segment)
+  );
+}
+
+function splitPreservingSentences(line: string): string[] {
+  const parts: string[] = [];
+  let start = 0;
+  SENTENCE_TERMINATOR_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = SENTENCE_TERMINATOR_RE.exec(line)) !== null) {
+    let end = match.index + 1;
+    while (end < line.length && /["'”’*_)\]]/.test(line[end]!)) end++;
+    parts.push(line.slice(start, end));
+    start = end;
+  }
+  if (start < line.length) {
+    parts.push(line.slice(start));
+  }
+  return parts;
+}
+
+function stripExternalRetailRecommendations(text: string): string {
+  const lines = text.split('\n');
+  const keptLines: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      keptLines.push(line);
+      continue;
+    }
+
+    // Drop Markdown table rows referencing competitor stores or external URLs/domains
+    if (trimmed.startsWith('|')) {
+      const isSeparator = /^\|?[\s:|-]+\|[\s:|-]*$/.test(trimmed);
+      if (!isSeparator && hasExternalStoreMention(trimmed)) {
+        continue;
+      }
+      keptLines.push(line);
+      continue;
+    }
+
+    // Neutralize external Markdown links [label](https://...) / [label](www...)
+    let normalizedLine = line.replace(
+      /\[([^\]]+)\]\(\s*(?:https?:\/\/|www\.)[^)\s]+\s*\)/gi,
+      (_m, rawLabel: string) => {
+        const label = rawLabel.trim();
+        return hasExternalStoreMention(label) ? 'cửa hàng khác' : label;
+      }
+    );
+
+    if (!hasExternalStoreMention(normalizedLine)) {
+      keptLines.push(normalizedLine);
+      continue;
+    }
+
+    const sentences = splitPreservingSentences(normalizedLine);
+    const filteredSentences = sentences.filter(s => !hasExternalStoreMention(s));
+    if (filteredSentences.length > 0) {
+      const rebuilt = filteredSentences.join('').trim();
+      if (rebuilt) keptLines.push(rebuilt);
+    } else {
+      // Single-clause fallback: strip external URLs/domains directly if the whole line was only a link mention
+      normalizedLine = normalizedLine
+        .replace(EXTERNAL_URL_RE, '')
+        .replace(EXTERNAL_DOMAIN_RE, '')
+        .replace(
+          /\b(?:tại|trên|ở|xem\s+thêm\s+tại|tham\s+khảo\s+tại|mua\s+tại)\s*(?=[.,;!?)]|$)/gi,
+          ''
+        )
+        .trim();
+      if (normalizedLine && !hasExternalStoreMention(normalizedLine)) {
+        keptLines.push(normalizedLine);
+      }
+    }
+  }
+
+  return keptLines
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 /**
- * Strips accidental raw UUIDs and internal XML guardrail tags from assistant prose
- * while preserving valid internal Markdown links like (/products/<uuid>).
+ * Strips accidental raw UUIDs, internal XML guardrail tags, and competitor store links/recommendations
+ * while preserving valid internal Markdown links like (/products/<uuid>) and official LapBot contacts.
  */
 export function sanitizeAssistantText(text: string, options?: { truncated?: boolean }): string {
   if (!text) return '';
 
   const protectedLinks: string[] = [];
-  let cleaned = text.replace(
-    /\(\/products\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\)/gi,
-    match => {
+  const protect = (pattern: RegExp, input: string) =>
+    input.replace(pattern, match => {
       const idx = protectedLinks.push(match) - 1;
       return `__LAPBOT_SAFE_PRODUCT_LINK_${idx}__`;
-    }
+    });
+
+  let cleaned = protect(
+    /\(\/(?:products\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|catalog|orders)(?:[?#][^\s)]*)?\)/gi,
+    text
   );
+  cleaned = protect(/\b[a-z0-9._%+-]+@lapbot\.vn\b/gi, cleaned);
+  cleaned = protect(/\bhttps?:\/\/(?:www\.)?lapbot\.vn(?:\/[^\s<>"')\]]*)?/gi, cleaned);
+  cleaned = protect(/(?<![\p{L}\p{N}_@])(?:www\.)?lapbot\.vn(?:\/[^\s<>"')\]]*)?/giu, cleaned);
 
   // Strip leaked internal XML delimiter tags if a model ever echoes them
   cleaned = cleaned.replace(
@@ -363,6 +537,14 @@ export function sanitizeAssistantText(text: string, options?: { truncated?: bool
     /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi,
     ''
   );
+
+  const hadExternalMention = hasExternalStoreMention(cleaned);
+  if (hadExternalMention || /\[[^\]]+\]\(\s*(?:https?:\/\/|www\.)/i.test(cleaned)) {
+    cleaned = stripExternalRetailRecommendations(cleaned);
+    if (!cleaned) {
+      cleaned = NO_EXTERNAL_SITE_FALLBACK;
+    }
+  }
 
   // Clean up double spaces left behind on the same line (preserving newlines and markdown indentation)
   cleaned = cleaned.replace(/([^\S\r\n]{2,})/g, ' ').replace(/\s+([,.;:!?])/g, '$1');

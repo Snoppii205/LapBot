@@ -878,3 +878,34 @@ test('upstream LLM HTTP and SSE error classifiers map context-limit errors to CO
   });
   assert.equal(streamCtxErr.code, 'CONTEXT_BUDGET');
 });
+
+test('guardrails and system prompt forbid recommending external laptop sites while keeping internal links and specs intact', async () => {
+  process.env.DATABASE_URL ??= 'postgres://lapbot:lapbot@localhost:5432/lapbot';
+  const { sanitizeAssistantText } = await import('../src/modules/chat/guardrails.js');
+  const { buildSystemPrompt } = await import('../src/modules/chat/service.js');
+
+  const prompt = buildSystemPrompt({ store: { store_name: 'LapBot' } });
+  assert.match(prompt, /ĐỘC QUYỀN KÊNH BÁN LAPBOT/);
+
+  const validProductId = '11111111-2222-4333-8444-555555555555';
+  const mixedReply = [
+    `Mẫu ThinkPad X1 màn 15.6 inch giá 25.990.000đ phù hợp học ASP.NET và Socket.IO. Xem chi tiết [tại đây](/products/${validProductId}).`,
+    'Ngoài ra bạn có thể mua ở [CellphoneS](https://cellphones.com.vn/laptop) hoặc tham khảo fptshop.com.vn hay Thế Giới Di Động.',
+    'Liên hệ support@lapbot.vn nếu cần hỗ trợ thêm.'
+  ].join('\n');
+
+  const cleanedMixed = sanitizeAssistantText(mixedReply);
+  assert.ok(cleanedMixed.includes(`/products/${validProductId}`));
+  assert.ok(cleanedMixed.includes('15.6 inch'));
+  assert.ok(cleanedMixed.includes('25.990.000đ'));
+  assert.ok(cleanedMixed.includes('ASP.NET'));
+  assert.ok(cleanedMixed.includes('Socket.IO'));
+  assert.ok(cleanedMixed.includes('support@lapbot.vn'));
+  assert.doesNotMatch(cleanedMixed, /cellphones|fptshop|Thế Giới Di Động|https?:\/\//i);
+
+  const competitorOnlyReply =
+    'Bạn nên qua Phong Vũ (https://phongvu.vn) hoặc tìm trên Shopee, Lazada để mua mẫu này.';
+  const cleanedFallback = sanitizeAssistantText(competitorOnlyReply);
+  assert.match(cleanedFallback, /LapBot/i);
+  assert.doesNotMatch(cleanedFallback, /Phong Vũ|phongvu|Shopee|Lazada|https?:\/\//i);
+});
