@@ -468,11 +468,14 @@ export async function recentConversationContext(
               );
             });
           } else if (w.widget_type === 'variant_customizer' && Array.isArray(w.payload?.variants)) {
+            const totalVariants = w.payload.variants.length;
+            const maxSummaryVariants = 6;
             w.payload.variants.forEach((v: Record<string, unknown> | null, idx: number) => {
               if (!v || typeof v !== 'object') return;
               if (typeof v.variant_id === 'string' && v.variant_id) {
                 variantIdsInTurn.push(v.variant_id);
               }
+              if (idx >= maxSummaryVariants) return;
               const price = Number(v.price_vnd);
               const priceStr = Number.isFinite(price)
                 ? `${price.toLocaleString('vi-VN')}đ`
@@ -481,13 +484,23 @@ export async function recentConversationContext(
                 `Phiên bản #${idx + 1}: (variant_id="${v.variant_id ?? ''}", CPU: ${v.cpu ?? 'N/A'}, RAM: ${v.ram_gb ?? 'N/A'}GB, SSD: ${v.ssd_gb ?? 'N/A'}GB, Giá: ${priceStr}, Còn hàng: ${v.in_stock ? 'Có' : 'Hết'})`
               );
             });
+            if (totalVariants > maxSummaryVariants) {
+              summaries.push(
+                `... (+${totalVariants - maxSummaryVariants} phiên bản khác; gọi get_laptop_variants_and_stock nếu cần xem thêm)`
+              );
+            }
           }
         }
         if (variantIdsInTurn.length > 0) {
           lastShownVariantIds = variantIdsInTurn;
         }
         if (summaries.length > 0) {
-          content = `${content}\n[Thẻ cấu hình đã hiển thị:\n${summaries.join('\n')}]`.trim();
+          const joinedSummaries = summaries.join('\n');
+          const boundedSummaries =
+            joinedSummaries.length > 1400
+              ? `${joinedSummaries.slice(0, 1400)}\n...`
+              : joinedSummaries;
+          content = `${content}\n[Thẻ cấu hình đã hiển thị:\n${boundedSummaries}]`.trim();
         }
       }
     } catch {

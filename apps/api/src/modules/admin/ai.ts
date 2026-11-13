@@ -16,6 +16,11 @@ import { config } from '../../config.js';
 import { AppError } from '../../lib/errors.js';
 import { complete, type ProviderMessage } from '../chat/llm/gateway.js';
 import {
+  fitMessagesToContextBudget,
+  IN_TURN_CONTEXT_BUDGET_CHARS,
+  serializeToolResult
+} from '../chat/context-budget.js';
+import {
   evaluateInputGuardrail,
   redactSensitivePii,
   sanitizeAssistantText,
@@ -501,17 +506,19 @@ export async function testAiModel(
     let finalTruncated = Boolean(completion1.truncatedByLength);
 
     if (completion1.toolCalls.length > 0) {
+      const pendingCalls = completion1.toolCalls.slice(0, 3);
       messages.push({
         role: 'assistant',
         content: completion1.text || null,
-        tool_calls: completion1.toolCalls
+        tool_calls: pendingCalls
       });
 
-      for (const call of completion1.toolCalls.slice(0, 3)) {
+      for (const call of pendingCalls) {
         try {
           const args = parseTool(call.function.name, call.function.arguments);
           const out = await executeTool(call.function.name, args);
-          const preview = JSON.stringify(out.result).slice(0, 200);
+          const serialized = serializeToolResult(out.result, 4000);
+          const preview = serialized.slice(0, 200);
           toolCallsExecuted.push({
             id: call.id,
             name: call.function.name,
@@ -521,26 +528,61 @@ export async function testAiModel(
           messages.push({
             role: 'tool',
             tool_call_id: call.id,
-            content: JSON.stringify(out.result).slice(0, 4000)
+            content: serialized
           });
         } catch (callErr) {
+          const errMessage = callErr instanceof Error ? callErr.message : 'Tool call failed';
           toolCallsExecuted.push({
             id: call.id,
             name: call.function.name,
             arguments: call.function.arguments,
-            result_preview: `Lỗi: ${callErr instanceof Error ? callErr.message : 'Tool call failed'}`
+            result_preview: `Lỗi: ${errMessage}`
+          });
+          messages.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: JSON.stringify({
+              error: 'TOOL_EXECUTION_FAILED',
+              message: errMessage
+            })
           });
         }
       }
 
-      const completion2 = await complete(
+      fitMessagesToContextBudget({
         messages,
-        readOnlyTools,
-        controller.signal,
-        () => {},
-        testModel,
-        configState.max_tokens_per_call
-      );
+        tools: readOnlyTools,
+        protectedStartIndex: 1,
+        maxChars: IN_TURN_CONTEXT_BUDGET_CHARS
+      });
+
+      let completion2;
+      try {
+        completion2 = await complete(
+          messages,
+          readOnlyTools,
+          controller.signal,
+          () => {},
+          testModel,
+          configState.max_tokens_per_call
+        );
+      } catch (err2) {
+        if (!(err2 instanceof AppError && err2.code === 'CONTEXT_BUDGET')) throw err2;
+        fitMessagesToContextBudget({
+          messages,
+          tools: readOnlyTools,
+          protectedStartIndex: 1,
+          maxChars: 12_000
+        });
+        completion2 = await complete(
+          messages,
+          readOnlyTools,
+          controller.signal,
+          () => {},
+          testModel,
+          configState.max_tokens_per_call
+        );
+      }
       finalText = completion2.text;
       finalTruncated = Boolean(completion2.truncatedByLength);
       if (completion2.usage) finalUsage = completion2.usage;

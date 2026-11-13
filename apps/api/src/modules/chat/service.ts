@@ -32,6 +32,25 @@ import { complete, type ProviderMessage } from './llm/gateway.js';
 import { executeTool, parseTool, toolDefinitions } from './tools/execute.js';
 import { getAiRuntimeSettings } from '../admin/ai.js';
 import { getStoreSettings } from '../admin/settings.js';
+import {
+  fitMessagesToContextBudget,
+  HARD_CONTEXT_LIMIT_CHARS,
+  IN_TURN_CONTEXT_BUDGET_CHARS,
+  MAX_PROVIDER_CALLS,
+  MAX_TOOLS_PER_TURN,
+  PRE_TURN_CONTEXT_BUDGET_CHARS,
+  serializeToolResult
+} from './context-budget.js';
+
+export {
+  fitMessagesToContextBudget,
+  HARD_CONTEXT_LIMIT_CHARS,
+  IN_TURN_CONTEXT_BUDGET_CHARS,
+  MAX_PROVIDER_CALLS,
+  MAX_TOOLS_PER_TURN,
+  PRE_TURN_CONTEXT_BUDGET_CHARS,
+  serializeToolResult
+};
 
 const storePath = fileURLToPath(
   new URL('../../../../../data/store-info.fallback.json', import.meta.url)
@@ -219,25 +238,34 @@ export async function runAiTurn(
     });
 
     const messages: ProviderMessage[] = [{ role: 'system', content: system }, ...history];
-    while (
-      JSON.stringify({ messages, tools: toolDefinitions }).length > 19000 &&
-      messages.length > 2
-    ) {
-      messages.splice(1, 1);
+    let lastUserIdx = -1;
+    for (let i = messages.length - 1; i >= 1; i--) {
+      if (messages[i]?.role === 'user') {
+        lastUserIdx = i;
+        break;
+      }
     }
+    let protectedStartIndex = lastUserIdx >= 1 ? lastUserIdx : Math.max(1, messages.length - 1);
+    protectedStartIndex = fitMessagesToContextBudget({
+      messages,
+      tools: toolDefinitions,
+      protectedStartIndex,
+      maxChars: PRE_TURN_CONTEXT_BUDGET_CHARS
+    }).protectedStartIndex;
 
     const previouslyShownIds = new Set<string>(conversation.lastShownVariantIds);
     const seenVariantIdsInTurn = new Set<string>();
 
-    const MAX_PROVIDER_CALLS = 4;
     let finished = false;
     while (calls < MAX_PROVIDER_CALLS && !finished) {
       if (!gateAccepts(gate)) throw new AppError(503, 'TURN_INTERRUPTED', 'Lượt chat đã ngắt.');
       calls++;
       const callTools = calls === MAX_PROVIDER_CALLS ? [] : toolDefinitions;
       let needsParagraphBreak = gate.text.length > 0 && !/\s$/.test(gate.text);
+      let emittedInCall = false;
 
       const streamChunkHandler = (text: string) => {
+        if (text.length > 0) emittedInCall = true;
         if (needsParagraphBreak && text.trim().length > 0) {
           needsParagraphBreak = false;
           acceptText(gate, `\n\n${text.replace(/^\s+/, '')}`);
@@ -258,26 +286,60 @@ export async function runAiTurn(
           maxTokens
         );
       } catch (primaryErr) {
-        const canFallback =
-          calls === 1 &&
-          gate.text.length === 0 &&
+        if (
+          primaryErr instanceof AppError &&
+          primaryErr.code === 'CONTEXT_BUDGET' &&
+          !emittedInCall &&
           !controller.signal.aborted &&
           !connectionSignal.aborted &&
-          Date.now() + 5000 < deadline &&
-          primaryErr instanceof AppError &&
-          (primaryErr.code === 'LLM_RATE_LIMIT' || primaryErr.code === 'LLM_UNAVAILABLE');
+          Date.now() + 3000 < deadline
+        ) {
+          const currentPayloadLen = JSON.stringify({ messages, tools: callTools }).length;
+          const tightBudget = Math.max(
+            10_000,
+            Math.min(20_000, Math.floor(currentPayloadLen * 0.55))
+          );
+          const shrunk = fitMessagesToContextBudget({
+            messages,
+            tools: callTools,
+            protectedStartIndex,
+            maxChars: tightBudget
+          });
+          protectedStartIndex = shrunk.protectedStartIndex;
+          if (shrunk.serializedLength < currentPayloadLen) {
+            result = await complete(
+              messages,
+              callTools,
+              controller.signal,
+              streamChunkHandler,
+              activeModel,
+              maxTokens
+            );
+          } else {
+            throw primaryErr;
+          }
+        } else {
+          const canFallback =
+            calls === 1 &&
+            gate.text.length === 0 &&
+            !controller.signal.aborted &&
+            !connectionSignal.aborted &&
+            Date.now() + 5000 < deadline &&
+            primaryErr instanceof AppError &&
+            (primaryErr.code === 'LLM_RATE_LIMIT' || primaryErr.code === 'LLM_UNAVAILABLE');
 
-        if (!canFallback) throw primaryErr;
+          if (!canFallback) throw primaryErr;
 
-        activeModel = pickFallbackModel(configuredModel);
-        result = await complete(
-          messages,
-          callTools,
-          controller.signal,
-          streamChunkHandler,
-          activeModel,
-          maxTokens
-        );
+          activeModel = pickFallbackModel(configuredModel);
+          result = await complete(
+            messages,
+            callTools,
+            controller.signal,
+            streamChunkHandler,
+            activeModel,
+            maxTokens
+          );
+        }
       }
 
       if (result.usage) {
@@ -318,7 +380,7 @@ export async function runAiTurn(
         break;
       }
 
-      if (toolsUsed + result.toolCalls.length > 4)
+      if (toolsUsed + result.toolCalls.length > MAX_TOOLS_PER_TURN)
         throw new AppError(503, 'TOOL_BUDGET', 'Giới hạn thao tác tư vấn đã đạt.');
       toolsUsed += result.toolCalls.length;
 
@@ -426,12 +488,21 @@ export async function runAiTurn(
         messages.push({
           role: 'tool',
           tool_call_id: call.id,
-          content: JSON.stringify(output.result).slice(0, 8000)
+          content: serializeToolResult(output.result, 6000)
         });
       }
 
-      if (JSON.stringify({ messages, tools: toolDefinitions }).length > 19000) {
-        throw new AppError(503, 'CONTEXT_BUDGET', 'Giới hạn ngữ cảnh đã đạt.');
+      if (!finished) {
+        const postToolFit = fitMessagesToContextBudget({
+          messages,
+          tools: toolDefinitions,
+          protectedStartIndex,
+          maxChars: IN_TURN_CONTEXT_BUDGET_CHARS
+        });
+        protectedStartIndex = postToolFit.protectedStartIndex;
+        if (postToolFit.serializedLength > HARD_CONTEXT_LIMIT_CHARS) {
+          throw new AppError(503, 'CONTEXT_BUDGET', 'Giới hạn ngữ cảnh đã đạt.');
+        }
       }
     }
 
@@ -510,6 +581,9 @@ export async function runAiTurn(
         } else if (code === 'TOOL_BUDGET' || code === 'PROVIDER_BUDGET') {
           message =
             'Đã đạt giới hạn tìm kiếm trong một lượt, vui lòng gửi tin nhắn mới để LapBot hỗ trợ tiếp.';
+        } else if (code === 'CONTEXT_BUDGET') {
+          message =
+            'Cuộc trò chuyện hiện khá dài, bạn vui lòng gửi lại yêu cầu ngắn gọn hơn hoặc bấm "+ Chat mới" để LapBot hỗ trợ mượt mà nhé.';
         } else if (error instanceof AppError && error.message) {
           message = error.message;
         }

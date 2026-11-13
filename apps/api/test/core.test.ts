@@ -653,3 +653,228 @@ test('sales filter merge, AI catalog normalization, and XML system prompt sandbo
   assert.equal(prompt.split('</untrusted_session_context>').length - 1, 1);
   assert.equal(prompt.split('</store_tone_preferences>').length - 1, 1);
 });
+
+test('context budget sliding window evicts old history pairs and compacts oversized tool JSON without breaking active turn', async () => {
+  process.env.DATABASE_URL ??= 'postgres://lapbot:lapbot@localhost:5432/lapbot';
+  const { fitMessagesToContextBudget, serializeToolResult, IN_TURN_CONTEXT_BUDGET_CHARS } =
+    await import('../src/modules/chat/service.js');
+  const { toolDefinitions } = await import('../src/modules/chat/tools/execute.js');
+
+  // 1. Reproduce production multi-turn comparison scenario (> 19,000 chars after tool calls)
+  const messages: Record<string, unknown>[] = [
+    { role: 'system', content: 'S'.repeat(6500) },
+    // Simulate odd-offset orphan assistant message from LIMIT 14 window
+    { role: 'assistant', content: 'Orphan leading reply' },
+    { role: 'user', content: 'Gợi ý laptop văn phòng tầm 6 triệu' },
+    { role: 'assistant', content: 'A1 '.repeat(1800) },
+    { role: 'user', content: 'Còn mẫu Dell hay HP nào khác không?' },
+    { role: 'assistant', content: 'A2 '.repeat(1800) },
+    { role: 'user', content: 'So sánh chi tiết 3 mẫu trên giúp mình' }
+  ];
+
+  let protectedStartIndex = messages.length - 1; // index 6: latest user message
+  const preFit = fitMessagesToContextBudget({
+    messages,
+    tools: toolDefinitions,
+    protectedStartIndex,
+    maxChars: 22_000
+  });
+  protectedStartIndex = preFit.protectedStartIndex;
+
+  // Orphan leading assistant and oldest turn pair must be evicted cleanly so messages[1] is a user turn
+  assert.equal(messages[0]?.role, 'system');
+  assert.equal(messages[1]?.role, 'user');
+  assert.equal(messages[protectedStartIndex]?.content, 'So sánh chi tiết 3 mẫu trên giúp mình');
+
+  // Simulate Call 1 emitting 3 parallel get_laptop_detail tool calls + rich tool outputs
+  messages.push({
+    role: 'assistant',
+    content: null,
+    tool_calls: [
+      { id: 'call_1', type: 'function', function: { name: 'get_laptop_detail', arguments: '{}' } },
+      { id: 'call_2', type: 'function', function: { name: 'get_laptop_detail', arguments: '{}' } },
+      { id: 'call_3', type: 'function', function: { name: 'get_laptop_detail', arguments: '{}' } }
+    ]
+  });
+  for (const id of ['call_1', 'call_2', 'call_3']) {
+    messages.push({
+      role: 'tool',
+      tool_call_id: id,
+      content: serializeToolResult({
+        variant_id: id,
+        model_name: `Laptop ${id}`,
+        price_vnd: 5_990_000,
+        description: 'Mô tả kỹ thuật chi tiết '.repeat(90)
+      })
+    });
+  }
+
+  // Fit against tight in-turn budget: must evict remaining prior history while keeping active turn & tool pairs intact
+  const postToolFit = fitMessagesToContextBudget({
+    messages,
+    tools: toolDefinitions,
+    protectedStartIndex,
+    maxChars: 24_000
+  });
+  assert.ok(IN_TURN_CONTEXT_BUDGET_CHARS >= 64_000);
+  assert.ok(postToolFit.serializedLength <= 24_000);
+  assert.equal(messages[0]?.role, 'system');
+  assert.equal(
+    messages[postToolFit.protectedStartIndex]?.content,
+    'So sánh chi tiết 3 mẫu trên giúp mình'
+  );
+  const toolMessages = messages.filter(m => m.role === 'tool');
+  assert.equal(toolMessages.length, 3, 'All 3 active-turn tool outputs must remain paired');
+  for (const tm of toolMessages) {
+    assert.doesNotThrow(
+      () => JSON.parse(String(tm.content)),
+      'Tool content must remain valid JSON'
+    );
+  }
+
+  // 2. Oversized variant arrays in serializeToolResult always stay valid JSON under cap
+  const manyVariants = Array.from({ length: 20 }, (_, idx) => ({
+    variant_id: `00000000-0000-0000-0000-${String(idx).padStart(12, '0')}`,
+    model_name: `ThinkPad T14 Gen ${idx}`,
+    cpu: 'Intel Core i7-1355U',
+    description: 'Chi tiết phần cứng '.repeat(30)
+  }));
+  const cappedJson = serializeToolResult({ variants: manyVariants }, 2500);
+  assert.ok(cappedJson.length <= 2500);
+  const parsedCapped = JSON.parse(cappedJson) as { variants?: unknown[]; total_variants?: number };
+  assert.equal(parsedCapped.total_variants, 20);
+  assert.ok(Array.isArray(parsedCapped.variants) && parsedCapped.variants.length >= 1);
+
+  // 3. Small-cap serializeToolResult keeps output <= maxChars and valid JSON even with escaping
+  const escapedPayload = { preview: 'Quote "hello" '.repeat(60) };
+  const smallCapJson = serializeToolResult(escapedPayload, 220);
+  assert.ok(smallCapJson.length <= 220, `Expected <= 220, got ${smallCapJson.length}`);
+  assert.doesNotThrow(() => JSON.parse(smallCapJson));
+});
+
+test('context budget phase 3 drops oldest intermediate in-turn tool rounds while preserving OpenAI tool pairing', async () => {
+  process.env.DATABASE_URL ??= 'postgres://lapbot:lapbot@localhost:5432/lapbot';
+  const { fitMessagesToContextBudget, serializeToolResult } = await import(
+    '../src/modules/chat/context-budget.js'
+  );
+  const { toolDefinitions } = await import('../src/modules/chat/tools/execute.js');
+
+  const messages: Record<string, unknown>[] = [
+    {
+      role: 'system',
+      content:
+        '<immutable_security_rules>Keep concise</immutable_security_rules>\n<store_ground_truth>' +
+        'G'.repeat(1600) +
+        '</store_ground_truth>\n<store_tone_preferences>' +
+        'T'.repeat(500) +
+        '</store_tone_preferences>'
+    },
+    { role: 'user', content: 'Lọc cho mình 3 laptop lập trình tầm 20 triệu rồi so sánh kỹ' }
+  ];
+
+  for (let round = 1; round <= 4; round++) {
+    const callIds = [`r${round}_c1`, `r${round}_c2`];
+    messages.push({
+      role: 'assistant',
+      content: null,
+      tool_calls: callIds.map(id => ({
+        id,
+        type: 'function',
+        function: { name: 'get_laptop_detail', arguments: `{"id":"${id}"}` }
+      }))
+    });
+    for (const id of callIds) {
+      messages.push({
+        role: 'tool',
+        tool_call_id: id,
+        content: serializeToolResult({
+          variant_id: id,
+          model_name: `Developer Pro ${id}`,
+          specs: 'Chi tiết thông số cấu hình '.repeat(60)
+        })
+      });
+    }
+  }
+
+  const tightMaxChars = 11_000;
+  const fitted = fitMessagesToContextBudget({
+    messages,
+    tools: toolDefinitions,
+    protectedStartIndex: 1,
+    maxChars: tightMaxChars
+  });
+
+  assert.ok(
+    fitted.serializedLength <= tightMaxChars,
+    `Expected serializedLength (${fitted.serializedLength}) <= ${tightMaxChars}`
+  );
+  assert.equal(messages[0]?.role, 'system');
+  assert.equal(messages[fitted.protectedStartIndex]?.role, 'user');
+
+  // Verify the newest tool round remains and every assistant tool_call is paired cleanly
+  const lastAssistantIdx = messages.findLastIndex(m => m.role === 'assistant');
+  assert.ok(lastAssistantIdx > fitted.protectedStartIndex);
+  const lastCalls = messages[lastAssistantIdx]?.tool_calls as Array<{ id: string }>;
+  assert.deepEqual(
+    lastCalls.map(c => c.id),
+    ['r4_c1', 'r4_c2']
+  );
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]!;
+    if (msg.role === 'assistant' && Array.isArray(msg.tool_calls)) {
+      const expectedIds = (msg.tool_calls as Array<{ id: string }>).map(c => c.id);
+      const actualIds: string[] = [];
+      for (let j = i + 1; j < messages.length && messages[j]?.role === 'tool'; j++) {
+        actualIds.push(String(messages[j]!.tool_call_id));
+        assert.doesNotThrow(() => JSON.parse(String(messages[j]!.content)));
+      }
+      assert.deepEqual(
+        actualIds,
+        expectedIds,
+        'Assistant tool_calls must match following tool rows'
+      );
+    }
+  }
+});
+
+test('upstream LLM HTTP and SSE error classifiers map context-limit errors to CONTEXT_BUDGET', async () => {
+  process.env.DATABASE_URL ??= 'postgres://lapbot:lapbot@localhost:5432/lapbot';
+  const { classifyUpstreamHttpError, classifyUpstreamStreamError } = await import(
+    '../src/modules/chat/llm/gateway.js'
+  );
+
+  const openaiCtxErr = classifyUpstreamHttpError(
+    400,
+    JSON.stringify({
+      error: {
+        message:
+          "This model's maximum context length is 16384 tokens. However, your messages resulted in 19200 tokens. Please reduce the length of the messages.",
+        type: 'invalid_request_error',
+        code: 'context_length_exceeded'
+      }
+    })
+  );
+  assert.equal(openaiCtxErr.code, 'CONTEXT_BUDGET');
+
+  const payloadTooLargeErr = classifyUpstreamHttpError(413, 'Request Entity Too Large');
+  assert.equal(payloadTooLargeErr.code, 'CONTEXT_BUDGET');
+
+  const geminiPromptLongErr = classifyUpstreamHttpError(
+    400,
+    JSON.stringify({ error: { message: 'Input token count exceeds maximum limit for model' } })
+  );
+  assert.equal(geminiPromptLongErr.code, 'CONTEXT_BUDGET');
+
+  const rateLimitErr = classifyUpstreamHttpError(429, '{"error":"rate limit exceeded"}');
+  assert.equal(rateLimitErr.code, 'LLM_RATE_LIMIT');
+
+  const genericErr = classifyUpstreamHttpError(502, 'Bad gateway');
+  assert.equal(genericErr.code, 'LLM_UNAVAILABLE');
+
+  const streamCtxErr = classifyUpstreamStreamError({
+    code: 'context_length_exceeded',
+    message: 'Too many tokens in conversation'
+  });
+  assert.equal(streamCtxErr.code, 'CONTEXT_BUDGET');
+});

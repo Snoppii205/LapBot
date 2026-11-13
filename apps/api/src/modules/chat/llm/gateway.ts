@@ -33,6 +33,83 @@ export type Completion = {
   truncatedByLength?: boolean;
   usage: Record<string, unknown> | null;
 };
+
+const CONTEXT_LIMIT_RE =
+  /context_length_exceeded|context[-_\s]?window|maximum\s+context\s+length|reduce\s+(?:the\s+)?length|too\s+many\s+tokens|token\s+limit|prompt\s+(?:is\s+)?too\s+(?:long|large)|input\s+(?:is\s+|token\s+count\s+)?(?:too\s+(?:long|large)|exceeds)|exceeds?\s+(?:the\s+)?(?:max(?:imum)?\s+)?(?:context|token|input)\s*(?:length|limit|window|count)?|request\s+(?:entity\s+)?too\s+large|payload\s+too\s+large/i;
+
+const RATE_LIMIT_RE = /rate[-_\s]?limit|too\s+many\s+requests|rpm\s+limit/i;
+
+function extractUpstreamErrorText(raw: string): string {
+  if (!raw) return '';
+  try {
+    const parsed = JSON.parse(raw) as {
+      error?: { code?: unknown; type?: unknown; message?: unknown } | string;
+      message?: unknown;
+      code?: unknown;
+    };
+    const parts: string[] = [];
+    if (typeof parsed.code === 'string') parts.push(parsed.code);
+    if (typeof parsed.message === 'string') parts.push(parsed.message);
+    if (typeof parsed.error === 'string') {
+      parts.push(parsed.error);
+    } else if (parsed.error && typeof parsed.error === 'object') {
+      if (typeof parsed.error.code === 'string') parts.push(parsed.error.code);
+      if (typeof parsed.error.type === 'string') parts.push(parsed.error.type);
+      if (typeof parsed.error.message === 'string') parts.push(parsed.error.message);
+    }
+    if (parts.length > 0) return parts.join(' ');
+  } catch {
+    // Non-JSON upstream error body; fall through to raw text
+  }
+  return raw;
+}
+
+export function classifyUpstreamHttpError(status: number, bodyText: string): AppError {
+  if (status === 429) {
+    return new AppError(
+      503,
+      'LLM_RATE_LIMIT',
+      'Hệ thống AI đang quá tải lượt gọi (Rate Limit), vui lòng thử lại sau giây lát.'
+    );
+  }
+  const normalized = extractUpstreamErrorText(bodyText);
+  if (status === 413 || CONTEXT_LIMIT_RE.test(normalized)) {
+    return new AppError(503, 'CONTEXT_BUDGET', 'Giới hạn ngữ cảnh đã đạt.');
+  }
+  if (RATE_LIMIT_RE.test(normalized)) {
+    return new AppError(
+      503,
+      'LLM_RATE_LIMIT',
+      'Hệ thống AI đang quá tải lượt gọi (Rate Limit), vui lòng thử lại sau giây lát.'
+    );
+  }
+  return new AppError(503, 'LLM_UNAVAILABLE', 'Trợ lý AI tạm thời không khả dụng.');
+}
+
+export function classifyUpstreamStreamError(frameError: unknown): AppError {
+  const serialized =
+    typeof frameError === 'string'
+      ? frameError
+      : (() => {
+          try {
+            return JSON.stringify(frameError);
+          } catch {
+            return '';
+          }
+        })();
+  const normalized = extractUpstreamErrorText(serialized);
+  if (CONTEXT_LIMIT_RE.test(normalized)) {
+    return new AppError(503, 'CONTEXT_BUDGET', 'Giới hạn ngữ cảnh đã đạt.');
+  }
+  if (RATE_LIMIT_RE.test(normalized)) {
+    return new AppError(
+      503,
+      'LLM_RATE_LIMIT',
+      'Hệ thống AI đang quá tải lượt gọi (Rate Limit), vui lòng thử lại sau giây lát.'
+    );
+  }
+  return new AppError(503, 'LLM_UNAVAILABLE', 'Trợ lý AI tạm thời không khả dụng.');
+}
 export async function complete(
   messages: ProviderMessage[],
   tools: Record<string, unknown>[],
@@ -69,14 +146,11 @@ export async function complete(
     body: JSON.stringify(requestBody)
   });
   if (!response.ok) {
-    await response.body?.cancel();
-    if (response.status === 429)
-      throw new AppError(
-        503,
-        'LLM_RATE_LIMIT',
-        'Hệ thống AI đang quá tải lượt gọi (Rate Limit), vui lòng thử lại sau giây lát.'
-      );
-    throw new AppError(503, 'LLM_UNAVAILABLE', 'Trợ lý AI tạm thời không khả dụng.');
+    const errorBody = await response
+      .text()
+      .then(s => s.slice(0, 4096))
+      .catch(() => '');
+    throw classifyUpstreamHttpError(response.status, errorBody);
   }
   if (
     (response.headers.get('content-type') ?? '').split(';')[0]?.trim().toLowerCase() !==
@@ -102,8 +176,7 @@ export async function complete(
     } catch {
       throw new AppError(503, 'LLM_INVALID_STREAM', 'Luồng AI bị lỗi.');
     }
-    if (frame?.error)
-      throw new AppError(503, 'LLM_UNAVAILABLE', 'Trợ lý AI tạm thời không khả dụng.');
+    if (frame?.error) throw classifyUpstreamStreamError(frame.error);
     if (frame?.usage) usage = frame.usage;
     const choice = frame?.choices?.[0];
     if (!choice) continue;
@@ -121,7 +194,7 @@ export async function complete(
     const delta = choice.delta;
     if (typeof delta?.content === 'string' && delta.content) {
       text += delta.content;
-      if (text.length > 12000) throw new AppError(503, 'LLM_OUTPUT_LIMIT', 'Phản hồi AI quá dài.');
+      if (text.length > 24000) throw new AppError(503, 'LLM_OUTPUT_LIMIT', 'Phản hồi AI quá dài.');
       if (verifiedPrefix) {
         onText(delta.content);
       } else {
@@ -139,7 +212,7 @@ export async function complete(
     }
     if (Array.isArray(delta?.tool_calls))
       for (const fragment of delta.tool_calls as ToolFragment[]) {
-        if (!Number.isInteger(fragment.index) || fragment.index < 0 || fragment.index > 3)
+        if (!Number.isInteger(fragment.index) || fragment.index < 0 || fragment.index > 7)
           throw new AppError(503, 'LLM_INVALID_TOOL', 'Tool call không hợp lệ.');
         const current = calls.get(fragment.index) ?? {
           id: '',
